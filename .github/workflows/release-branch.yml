@@ -27,7 +27,7 @@ on:
         required: false
         default: ''
       excludePattern:
-        description: 'Exclude pattern - #86c3rnxvw, #0'
+        description: 'Exclude pattern - #86c3rnxzw, #0'
         required: false
         default: ''
 env:
