@@ -333,7 +333,7 @@ fi
 # Checkout main branch to start with a clean state
 git checkout "origin/$target_branch"
 git branch --show-current
-git log --oneline -n 10
+
 
 
 # Get the current version from version.json
@@ -354,7 +354,7 @@ release_branch="${release_branch_prefix}${next_version}"
 echo "Creating release branch...: $release_branch"
 git checkout -b "$release_branch" "origin/$target_branch"
 git branch --show-current
-git log --oneline -n 10
+
 
 
 
