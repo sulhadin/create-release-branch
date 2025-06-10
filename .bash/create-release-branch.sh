@@ -74,6 +74,18 @@ MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 RESET='\033[0m'
 
+if [ -n "$CI" ] || [ -n "$GITHUB_ACTIONS" ]; then
+  # Disable colors in CI
+  RED=''
+  GREEN=''
+  YELLOW=''
+  BLUE=''
+  MAGENTA=''
+  CYAN=''
+  RESET=''
+fi
+
+
 #deprecated
 #format_changelog(){
 #   local changelog_content="$1"
@@ -201,6 +213,94 @@ log_verbose() {
     echo "$1"
     echo "${RED}------------------------------------------------------${RESET}"
   fi
+}
+
+cherry_pick_pr_commits() {
+  local pr_number="$1"
+  local commit_hash="$2"
+
+  echo "Cherry-picking commit for PR #$pr_number: $commit_hash"
+
+  # First, verify the commit exists
+  if ! git cat-file -e "$commit_hash^{commit}" 2>/dev/null; then
+    echo "Warning: Commit $commit_hash doesn't exist in the local repository. Trying to fetch..."
+
+    # Try to fetch the commit directly
+    if ! git fetch origin "$commit_hash"; then
+      echo "Error: Couldn't fetch commit $commit_hash. Let's try finding the PR directly..."
+
+      # Try to fetch the PR directly
+      if git fetch origin "refs/pull/$pr_number/head"; then
+        pr_head_commit=$(git rev-parse FETCH_HEAD)
+        echo "Found PR #$pr_number head commit: $pr_head_commit"
+        commit_hash="$pr_head_commit"
+      else
+        # Try to find the PR merge commit in dev branch
+        merge_commit=$(git log --grep="Merge pull request #$pr_number" --format="%H" "origin/dev" | head -n 1)
+        if [ -n "$merge_commit" ]; then
+          echo "Found merge commit for PR #$pr_number: $merge_commit"
+          commit_hash="$merge_commit"
+        else
+          echo "Error: Could not find commit or PR #$pr_number. Skipping."
+          return 1
+        fi
+      fi
+    fi
+  fi
+
+  # Now try to cherry-pick
+  if git cherry-pick -n "$commit_hash" 2>/dev/null; then
+    # Check if there are any changes
+    if git diff --cached --quiet; then
+      echo "Empty cherry-pick detected for $commit_hash. No changes to apply."
+      git reset --hard  # Clean up any partial state
+      return 0
+    else
+      # We have changes, commit them
+      git commit -m "Cherry-pick changes from PR #$pr_number ($commit_hash)"
+      echo "Successfully cherry-picked changes from PR #$pr_number"
+      return 0
+    fi
+  else
+    # Cherry-pick failed
+    echo "Cherry-pick failed for PR #$pr_number ($commit_hash)"
+    git status
+    git cherry-pick --abort 2>/dev/null || git reset --hard
+    return 1
+  fi
+}
+
+
+# Add this function to your script
+debug_commits() {
+    local source_branch="$1"
+    local target_branch="$2"
+    local release_branch="$3"
+
+    echo "${CYAN}===== COMMIT DEBUGGING INFORMATION =====${RESET}"
+
+    # Log the latest commits in each branch
+    echo "${YELLOW}Latest commits in $source_branch:${RESET}"
+    git log -n 5 --oneline "origin/$source_branch"
+
+    echo "${YELLOW}Latest commits in $target_branch:${RESET}"
+    git log -n 5 --oneline "origin/$target_branch"
+
+    # If release branch exists
+    if git rev-parse --verify "origin/$release_branch" >/dev/null 2>&1; then
+        echo "${YELLOW}Latest commits in $release_branch:${RESET}"
+        git log -n 5 --oneline "origin/$release_branch"
+    fi
+
+    # Show commits that are in source but not in target
+    echo "${GREEN}Commits in $source_branch that are not in $target_branch:${RESET}"
+    git log --oneline "origin/$target_branch..origin/$source_branch"
+
+    # Show common ancestor
+    echo "${MAGENTA}Common ancestor between $source_branch and $target_branch:${RESET}"
+    common_commit=$(git merge-base "origin/$source_branch" "origin/$target_branch")
+    git log -n 1 --oneline "$common_commit"
+    echo "${CYAN}===== END DEBUGGING INFORMATION =====${RESET}"
 }
 
 increment_version() {
@@ -333,7 +433,7 @@ fi
 # Checkout main branch to start with a clean state
 git checkout "origin/$target_branch"
 git branch --show-current
-git log --oneline -n 10
+
 
 
 # Get the current version from version.json
@@ -351,13 +451,25 @@ log_verbose "Next version will be: $next_version"
 # Create release branch name
 release_branch="${release_branch_prefix}${next_version}"
 
+# Ensure we have the latest from remote
 echo "Creating release branch...: $release_branch"
-git checkout -b "$release_branch" "origin/$target_branch"
-git branch --show-current
-git log --oneline -n 10
+
+# Ensure we have the latest from remote with full history
+echo "Fetching latest from remote..."
+git fetch --all --prune || true
+
+# Ensure both branches exist remotely
+git ls-remote --heads origin "$source_branch" || { echo "Source branch $source_branch does not exist on remote!"; exit 1; }
+git ls-remote --heads origin "$target_branch" || { echo "Target branch $target_branch does not exist on remote!"; exit 1; }
+
+# Create the release branch from the target branch
+echo "Creating release branch from $target_branch..."
+git checkout -B "$release_branch" "origin/$target_branch" || { echo "Failed to create branch from $target_branch"; exit 1; }
+git branch --set-upstream-to="origin/$target_branch" "$release_branch"
+echo "Current branch: $(git branch --show-current)"
 
 
-
+debug_commits "$source_branch" "$target_branch" "$release_branch"
 
 if $no_action; then
   log_verbose "$YELLOW NO ACTION TAKEN! $RESET"
@@ -369,31 +481,20 @@ temp_file=$(mktemp)
 echo "$pr_data" | tr -d '\000-\037' | jq -c '.[]' > "$temp_file" 2>/dev/null
 
 
-# Extract PR info and filter by exclusion patterns
+# Now extract the PR numbers and commit hashes from your PR data
 echo "Filtering PRs and extracting commit hashes..."
+
+# Process each PR
 while read -r pr; do
   commit=$(echo "$pr" | jq -r '.mergeCommit.oid')
   pr_number=$(echo "$pr" | jq -r '.number')
 
-  echo "Cherry-picking $commit  (#$pr_number)..."
-  if ! git cherry-pick "$commit" 2>/dev/null; then
-    # Check if it's just an empty commit
-    if git diff --cached --quiet; then
-      echo "Empty cherry-pick detected for $commit, continuing with --allow-empty"
-      git cherry-pick --continue --allow-empty
-    else
-      echo "Error: Failed to cherry-pick commit $commit (#$pr_number) due to conflicts"
-      echo "Aborting cherry-pick and cleaning up..."
-      git cherry-pick --abort
-      git checkout "$source_branch"
-      git branch -D "$release_branch"
-      exit 1
-    fi
-  fi
+  cherry_pick_pr_commits "$pr_number" "$commit"
 done < "$temp_file"
 
 # Remove temporary file
 rm "$temp_file"
+rm -f cherry-pick-error.log
 
 # Push the release branch
 echo "Pushing release branch..."
@@ -402,6 +503,7 @@ git push origin "$release_branch"
 echo "Prepare release notes..."
 pr_body=$(get_release_notes "$release_branch")
 
+echo "PRs:$pr_body"
 echo "Generate release_notes.txt"
 echo "$pr_body" > release_notes.txt
 echo "Generate pr_data.txt"

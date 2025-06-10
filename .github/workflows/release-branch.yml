@@ -38,31 +38,28 @@ permissions: write-all
 jobs:
   create-release:
     runs-on: ubuntu-latest
+    environment: 'staging'
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.PR_CREATION_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          ssh-key: ${{ secrets.DEPLOY_KEY }}
-          ref: ${{env.SOURCE_BRANCH}}
-      - name: Fetch all branches
+          fetch-depth: 0  # Critical - fetch full history
+          token: ${{ secrets.PR_CREATION_TOKEN }}
+
+      - name: Setup Git
         run: |
-          git fetch --all
-          git fetch origin ${{ env.TARGET_BRANCH }}
+          #Configure git, add and commit, pull any new changes (with rebase) and push
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+      
+
       - name: 'Generate Release Branch'
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |         
-          git status
-          ls
-          
-              # Add this before running the script
-              git config merge.conflictstyle diff3
-              git config pull.rebase true
-    
-    
-          echo "Param1: --source ${{ env.SOURCE_BRANCH }} --target ${{ env.TARGET_BRANCH }}"
+          GH_TOKEN: ${{ secrets.PR_CREATION_TOKEN }}
+        run: |       
+          echo "Param1: --source ${{ env.SOURCE_BRANCH }} --target ${{ env.TARGET_BRANCH }}  --verbose"
           
           # Build command with only non-empty parameters
           CMD="./.bash/create-release-branch.sh --source ${{ env.SOURCE_BRANCH }} --target ${{ env.TARGET_BRANCH }}"
