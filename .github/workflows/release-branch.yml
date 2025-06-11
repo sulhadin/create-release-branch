@@ -58,7 +58,10 @@ jobs:
       - name: 'Generate Release Branch'
         env:
           GH_TOKEN: ${{ secrets.PR_CREATION_TOKEN }}
-        run: |       
+        run: |
+          echo "Repository: ${{ github.repository }}"
+          echo "Repository Name: ${{ github.event.repository.name }}"
+
           echo "Param1: --source ${{ env.SOURCE_BRANCH }} --target ${{ env.TARGET_BRANCH }}  --verbose"
           
           # Build command with only non-empty parameters
@@ -115,7 +118,7 @@ jobs:
           #CHANGELOG.md
           
           new_version=$(cat version.txt)
-          bash ./.bash/update-version.sh $new_version
+          bash ./.bash/utils/update-version.sh $new_version
           
           rm -f version.txt release_notes.txt pr_data.txt
                
@@ -125,10 +128,8 @@ jobs:
       
 
           #Configure git, add and commit, pull any new changes (with rebase) and push
-          git config --global user.name "${{ github.actor }}"
-          git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
           git add .
-          git commit -m "bump(release): kripto-mobile to ${version}"
+          git commit -m "bump(version): app to ${version}"
           git pull --rebase origin $CURRENT_BRANCH
           git push origin HEAD:$CURRENT_BRANCH
           echo "::notice::New version: $version pushed to $CURRENT_BRANCH"
