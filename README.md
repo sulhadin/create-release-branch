@@ -20,7 +20,7 @@ This workflow is manually triggered using GitHub's event, allowing users to spec
 3. **Generate Release Branch**: The main step that:
     - Configures git merge conflict style and rebase settings
     - Runs the create-release-branch.sh script with provided parameters
-    - Generates changelog based on included PRs
+    - Generates a changelog based on included PRs
     - Updates version information
     - Commits and pushes changes to the new branch
 
