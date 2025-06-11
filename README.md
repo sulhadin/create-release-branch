@@ -3,16 +3,7 @@
 This GitHub Actions workflow automates the creation of release branches from a source branch (typically `dev`). It handles the branching process, changelog generation, version updates, and commits these changes to the newly created release branch.
 ## Workflow Trigger
 This workflow is manually triggered using GitHub's event, allowing users to specify various parameters when running the workflow. `workflow_dispatch`
-## Input Parameters
 
-| Parameter | Description | Required | Default |
-| --- | --- | --- | --- |
-| `source-branch` | The branch to create the release from | Yes | `dev` |
-| `target-branch` | The branch to eventually merge into | Yes | `main` |
-| `mergedSince` | Start date for PR filtering (format: YYYY-MM-DDTHH:MM:SSZ) | No | - |
-| `mergedUntil` | End date for PR filtering (format: YYYY-MM-DDTHH:MM:SSZ) | No | - |
-| `includePrIds` | Specific PR IDs to include (comma-separated) | No | - |
-| `excludePattern` | Pattern to exclude certain PRs | No | - |
 ## Workflow Steps
 1. **Checkout Code**: Fetches the repository with its history
 2. **Fetch All Branches**: Ensures all branch information is available
