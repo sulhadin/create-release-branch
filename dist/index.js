@@ -27614,7 +27614,7 @@ async function run() {
         // Generate changelog
         const prData = fs.readFileSync('pr_data.txt', 'utf8');
         await exec.exec('bash', [
-            path.join(scriptDir, 'generate_changelog.sh'),
+            __nccwpck_require__.ab + "generate-changelog.sh",
             newVersion,
             prData
         ]);
