@@ -1,4 +1,4 @@
-# Release Branch Creation Workflow
+# Release Branch Creation Workflow #2
 
 ## Overview
 This GitHub Actions workflow automates the creation of release branches from a source branch (typically `dev`). It handles the branching process, changelog generation, version updates, and commits these changes to the newly created release branch.
