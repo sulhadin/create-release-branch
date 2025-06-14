@@ -4,7 +4,7 @@
 source_branch="dev"
 target_branch="main"
 release_branch_prefix="release-branch/"
-release_version=""
+current_version=""
 mergedSinceDate=""
 mergedUntilDate=""
 include_pr_ids=""
@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --version)
-      release_version="$2"
+      current_version="$2"
       shift 2
       ;;
     --from-date)
@@ -43,6 +43,10 @@ while [[ $# -gt 0 ]]; do
       include_pr_ids="$2"
       shift 2
       ;;
+      --branch-prefix)
+        release_branch_prefix="$2"
+        shift 2
+        ;;
       --verbose)
       # Handle as a flag without requiring a value
       verbose_detail=true
@@ -327,6 +331,7 @@ else
   pr_data=$(get_direct_commits)
 fi
 
+log_verbose "Current version from version.json: $current_version"
 log_verbose "JSON Data: $CYAN$pr_data$RESET"
 
 # Check if pr_data is empty or just "[]"
@@ -335,7 +340,6 @@ if [ -z "$pr_data" ] || [ "$pr_data" = "[]" ]; then
   exit 1
 fi
 
-log_verbose "Current version from version.json: $current_version"
 
 if $no_action; then
   log_verbose "$YELLOW NO ACTION TAKEN! $RESET"
@@ -347,16 +351,12 @@ git checkout "origin/$target_branch"
 git branch --show-current
 
 
-# Get the current version from version.json
-if [ -z "$release_version" ]; then
-  current_version=$(jq -r '.version' version.json)
-fi
-
 log_verbose "Current version from version.json: $current_version"
 
 # Calculate the next version based on PR data
 version_info=$(semantic_versioning "$current_version" "$pr_data")
 log_verbose "Version info from semantic_versioning: $version_info"
+
 next_version=$(echo "$version_info" | tail -n1)
 log_verbose "Next version will be: $next_version"
 
