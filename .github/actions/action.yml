@@ -47,5 +47,21 @@ outputs:
     description: 'URL of the created pull request'
 
 runs:
-  using: 'node16'
-  main: '../../index.js'
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+      shell: bash
+
+    - name: Install Dependencies with Yarn
+      shell: bash
+      run: |
+        cd ${{ github.action_path }}
+        yarn install
+
+    - using: 'node16'
+      main: '../../index.js'
+      run:
+      shell: node
