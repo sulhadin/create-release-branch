@@ -92,7 +92,9 @@ log_verbose() {
 cherry_pick_pr_commits() {
   local commit_hash="$1"
   local pr_title="$2"
-  local pr_number="$3"
+  local pr_number
+  pr_number=$(echo "$pr_title" | grep -oE '\(#[0-9]+\)' | grep -oE '[0-9]+')
+
 
   echo "Cherry-picking commit for PR #$pr_number: $commit_hash"
 
@@ -227,26 +229,14 @@ get_prs_by_ids() {
    # Now use git log with specific commit hashes to get all details including messageBody
    git_cmd="git log --no-walk $merge_commits --pretty=format:'{\"oid\":\"%H\",\"messageHeadline\":\"%s\",\"messageBody\":\"%b\"}'"
 
-  #  local direct_commits
-  #  direct_commits=$(eval "$git_cmd" | tr -d '\000-\037' | jq -s '.')
-  #  echo "$direct_commits"
-
-   eval "$git_cmd"
+  local direct_commits
+  direct_commits=$(eval "$git_cmd" | tr '\n' ' ' | jq -s '.')
+  echo "$direct_commits"
 }
 
 get_direct_commits() {
   local date_range=""
   local exclude_filter=""
-
-  if [ -n "$exclude_patterns" ]; then
-    # Replace commas with pipe symbols for grep OR pattern
-    local pattern_string=$(echo "$exclude_patterns" | sed 's/,/|/g')
-
-    # Create a post-filtering command
-    exclude_filter="| grep -v -E \"($pattern_string)\""
-  fi
-
-
 
   if [ -n "$mergedSinceDate" ] && [ -n "$mergedUntilDate" ]; then
     date_range="--since=\"$mergedSinceDate\" --until=\"$mergedUntilDate\""
@@ -259,17 +249,19 @@ get_direct_commits() {
 
   local git_cmd="git log $source_branch --no-merges $date_range --format='{\"oid\":\"%H\",\"messageHeadline\":\"%s\",\"messageBody\":\"%b\"}'"
 
-#  local direct_commits
-#  direct_commits=$(eval "$git_cmd" | tr -d '\000-\037' | jq -s '.')
-#  echo "$direct_commits"
+  local direct_commits
+  direct_commits=$(eval "$git_cmd" |  tr '\n' ' '  | jq -s '.')
 
-  # If we have exclude patterns, filter the output
-  if [ -n "$exclude_filter" ]; then
-    eval "$git_cmd $exclude_filter"
-  else
-    eval "$git_cmd"
+  # If we have exclude patterns, filter the JSON array
+  if [ -n "$exclude_patterns" ]; then
+     local pattern_string
+    pattern_string=$(echo "$exclude_patterns" | sed 's/,/|/g')
+
+    # Filter the JSON array to exclude commits whose messageHeadline matches the pattern
+    direct_commits=$(echo "$direct_commits" | jq --arg pattern "$pattern_string" '[.[] | select(.messageHeadline | test($pattern) | not)]')
   fi
 
+  echo "$direct_commits"
 }
 
 get_release_notes(){
@@ -291,18 +283,18 @@ semantic_versioning() {
 
   local commit_messages
 
-commit_messages=$(echo "$json_data" | grep -o '"messageHeadline"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/"messageHeadline"[[:space:]]*:[[:space:]]*"//;s/"$//')
+commit_messages=$(echo "$json_data" | jq -r '.[].messageBody')
 
   if $verbose_detail; then
     echo "$commit_messages" | while read -r commit_msg; do
       log_verbose "$BLUE Processing commit:$RESET$MAGENTA $commit_msg $RESET"
           # First check entire commit message for breaking changes, with or without colon
-          if echo "$commit_msg" | grep -qiE "^(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
+          if echo "$commit_msg" | grep -qiE "(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
             log_verbose "$RED$commit_msg$RESET"
           # If no breaking changes, check the first line for feat/fix/perf, with or without colon
-          elif echo "$commit_msg" | grep -qiE "^(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
+          elif echo "$commit_msg" | grep -qiE "(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
             log_verbose "$YELLOW$commit_msg$RESET"
-          elif echo "$commit_msg" | grep -qiE "^(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
+          elif echo "$commit_msg" | grep -qiE "(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
             log_verbose "$GREEN$commit_msg$RESET"
           fi
         done
@@ -310,12 +302,12 @@ commit_messages=$(echo "$json_data" | grep -o '"messageHeadline"[[:space:]]*:[[:
 #
   result=$(echo "$commit_messages" | while read -r commit_msg; do
     # First check entire commit message for breaking changes, with or without colon
-    if echo "$commit_msg" | grep -qiE "^(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
+    if echo "$commit_msg" | grep -qiE "(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
       echo "major"
     # If no breaking changes, check the first line for feat/fix/perf, with or without colon
-    elif echo "$commit_msg" | grep -qiE "^(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
+    elif echo "$commit_msg" | grep -qiE "(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
       echo "minor"
-    elif echo "$commit_msg" | grep -qiE "^(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
+    elif echo "$commit_msg" | grep -qiE "(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
       echo "patch"
     fi
   done)
@@ -339,8 +331,8 @@ if [ -n "$include_pr_ids" ]; then
 else
   pr_data=$(get_direct_commits)
 fi
-echo "here we go safiye"
-log_verbose "$pr_data"
+
+log_verbose "JSON Data: $CYAN$pr_data$RESET"
 
 # Check if pr_data is empty or just "[]"
 if [ -z "$pr_data" ] || [ "$pr_data" = "[]" ]; then
@@ -348,6 +340,7 @@ if [ -z "$pr_data" ] || [ "$pr_data" = "[]" ]; then
   exit 1
 fi
 
+log_verbose "Current version from version.json: $current_version"
 
 if $no_action; then
   log_verbose "$YELLOW NO ACTION TAKEN! $RESET"
@@ -397,20 +390,20 @@ debug_commits "$source_branch" "$target_branch" "$release_branch"
 
 # Create a temporary file for the PR data
 temp_file=$(mktemp)
-echo "$pr_data" | tr -d '\000-\037' | jq -c '.[]' > "$temp_file" 2>/dev/null
+echo "$pr_data" | jq -c '.[]' > "$temp_file" 2>/dev/null
 
 # Now extract the PR numbers and commit hashes from your PR data
 echo "Filtering PRs and extracting commit hashes..."
 
 # Process each PR
 while read -r pr; do
-  commit=$(echo "$pr" | jq -r '.mergeCommit.oid')
-  pr_number=$(echo "$pr" | jq -r '.number')
-  pr_title=$(echo "$pr" | jq -r '.title')
+  commit=$(echo "$pr" | jq -r '.oid')
+#  pr_number=$(echo "$pr" | jq -r '.number')
+  pr_title=$(echo "$pr" | jq -r '.messageHeadline')
 
   echo "$pr_title"
 
-  cherry_pick_pr_commits "$commit" "$pr_title" "$pr_number"
+  cherry_pick_pr_commits "$commit" "$pr_title"
 done < "$temp_file"
 
 # Remove temporary file
