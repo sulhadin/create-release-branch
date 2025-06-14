@@ -16135,7 +16135,7 @@ async function httpNetworkFetch (
 
   async function dispatch ({ body }) {
     const url = requestCurrentURL(request)
-    /** @type {import('../index').Agent} */
+    /** @type {import('../..').Agent} */
     const agent = fetchParams.controller.dispatcher
 
     return new Promise((resolve, reject) => agent.dispatch(
@@ -22478,7 +22478,7 @@ function lowerCaseEntries (headers) {
 }
 
 /**
- * @param {import('../index').Headers|string[]|Record<string, string>} headers
+ * @param {import('../../index').Headers|string[]|Record<string, string>} headers
  * @param {string} key
  */
 function getHeaderByName (headers, key) {
@@ -27572,18 +27572,14 @@ async function run() {
         const includePrIds = core.getInput('include-pr-ids');
         const excludePattern = core.getInput('exclude-pattern');
         const verbose = core.getInput('verbose') === 'true';
-        const githubToken = core.getInput('github-token', { required: true });
+        process.env.GH_TOKEN = core.getInput('github-token', { required: true });
 
-        // Set environment variable for GitHub CLI
-        process.env.GH_TOKEN = githubToken;
-
-        // Set up Git configuration
         await exec.exec('git', ['config', '--global', 'user.name', process.env.GITHUB_ACTOR || 'GitHub Action']);
         await exec.exec('git', ['config', '--global', 'user.email', `${process.env.GITHUB_ACTOR_ID || '41898282'}+${process.env.GITHUB_ACTOR || 'github-actions[bot]'}@users.noreply.github.com`]);
 
         // Make script files executable
-        const scriptDir = path.join(__dirname, 'scripts');
-        await exec.exec('chmod', ['-R', '+x', scriptDir]);
+        const scriptDir = __nccwpck_require__.ab + "scripts";
+        await exec.exec('chmod', ['-R', '+x', __nccwpck_require__.ab + "scripts"]);
 
         // Build the command with required parameters
         let cmd = [
@@ -27660,7 +27656,7 @@ async function run() {
     }
 }
 
-run();
+run().then();
 module.exports = __webpack_exports__;
 /******/ })()
 ;
