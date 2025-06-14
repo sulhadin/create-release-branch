@@ -1,0 +1,51 @@
+name: 'Release Branch Creator'
+description: 'Creates a release branch, updates version, and generates changelog based on PR data'
+author: 'Sulhadin Öney'
+
+inputs:
+  source-branch:
+    description: 'Source branch to cherry-pick commits from'
+    required: true
+    default: 'dev'
+  target-branch:
+    description: 'Target branch to create the release from'
+    required: true
+    default: 'main'
+  branch-prefix:
+    description: 'Prefix for the release branch name'
+    required: false
+    default: 'release-branch/'
+  current-version:
+    description: 'Current version of the project'
+    required: true
+  merged-since:
+    description: 'Include PRs merged since date (format: YYYY-MM-DDTHH:MM:SSZ)'
+    required: false
+  merged-until:
+    description: 'Include PRs merged until date (format: YYYY-MM-DDTHH:MM:SSZ)'
+    required: false
+  include-pr-ids:
+    description: 'Comma-separated list of PR IDs to include'
+    required: false
+  exclude-pattern:
+    description: 'Pattern to exclude PRs/commits'
+    required: false
+  verbose:
+    description: 'Enable verbose logging'
+    required: false
+    default: 'false'
+  github-token:
+    description: 'GitHub token for authentication'
+    required: true
+
+outputs:
+  new-version:
+    description: 'The new version created by the action'
+  release-branch:
+    description: 'The name of the created release branch'
+  pr-url:
+    description: 'URL of the created pull request'
+
+runs:
+  using: 'node16'
+  main: '../../dist/index.js'
