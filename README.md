@@ -45,7 +45,7 @@ The workflow generates several temporary files during execution:
 The workflow requires:
 - A Unix-like environment (runs on Ubuntu)
 - Access to the script `.bash/create-release-branch.sh`
-- Access to the script `.bash/utils/generate_changelog.sh`
+- Access to the script `.bash/utils/generate-changelog.sh`
 - Access to the script `.bash/update-version.sh`
 - A properly formatted file `version.json`
 
