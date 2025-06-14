@@ -133,12 +133,7 @@ cherry_pick_pr_commits() {
       git reset --hard  # Clean up any partial state
       return 0
     else
-      # We have changes, commit them
-      if [ -n "$pr_number" ]; then
-        git commit -m "$pr_title (#$pr_number)"
-      else
-        git commit -m "$pr_title"
-      fi
+     git commit -m "$pr_title"
 
       echo "Successfully cherry-picked changes from PR #$pr_number"
       return 0
