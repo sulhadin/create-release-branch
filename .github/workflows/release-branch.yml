@@ -104,7 +104,7 @@ jobs:
           bash ./.bash/utils/update-version.sh "$(cat version.txt)"
           
           version=$(jq -r '.version' version.json)
-          bash ./.bash/utils/generate_changelog.sh "$version" "$(cat pr_data.txt)"
+          bash ./.bash/utils/generate-changelog.sh "$version" "$(cat pr_data.txt)"
           
           echo "::group::Release Notes Verbose Logs"
           cat release_notes.txt

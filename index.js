@@ -57,7 +57,7 @@ async function run() {
         // Generate changelog
         const prData = fs.readFileSync('pr_data.txt', 'utf8');
         await exec.exec('bash', [
-            path.join(scriptDir, 'generate_changelog.sh'),
+            path.join(scriptDir, 'generate-changelog.sh'),
             newVersion,
             prData
         ]);
