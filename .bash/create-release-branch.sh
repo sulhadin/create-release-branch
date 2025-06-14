@@ -385,7 +385,7 @@ debug_commits "$source_branch" "$target_branch" "$release_branch"
 
 # Create a temporary file for the PR data
 temp_file=$(mktemp)
-echo "$pr_data" | jq -c '.[]' > "$temp_file" 2>/dev/null
+echo "$pr_data" | jq -c 'reverse | .[]' > "$temp_file" 2>/dev/null
 
 # Now extract the PR numbers and commit hashes from your PR data
 echo "Filtering PRs and extracting commit hashes..."
