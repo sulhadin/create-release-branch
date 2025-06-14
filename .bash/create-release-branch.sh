@@ -211,26 +211,40 @@ increment_version() {
 }
 
 get_prs_by_ids() {
-  local exclude_pattern_query=""
-  for pattern in "${exclude_patterns[@]}"; do
-    exclude_pattern_query+=" NOT in:title \\\"${pattern}\\\""
-  done
-
+  local pr_ids
   IFS=',' read -ra pr_ids <<< "$include_pr_ids"
-  local include_pr_id_query=""
-  for pattern in "${pr_ids[@]}"; do
-    include_pr_id_query+=" is:pr \\\"${pattern}\\\""
+
+  local grep_pattern=""
+  for id in "${pr_ids[@]}"; do
+    # Add each PR ID to the grep pattern with OR operator
+    if [ -z "$grep_pattern" ]; then
+      grep_pattern="(#${id})"
+    else
+      grep_pattern="${grep_pattern}\|(#${id})"
+    fi
   done
 
-  # Get merged PRs with their merge commits
-  echo "Finding merged PRs with query: $exclude_pattern_query..." >&2
-  #gh pr list --state merged --base dev --search "merged:2025-05-27T00:00:00Z..2025-05-30T00:00:00Z NOT in:title \"#86c1c1uka\" NOT in:title \"#0\""
-  pr_cmd="gh pr list --state merged --base \"$source_branch\" --search \"$exclude_pattern_query$include_pr_id_query\" --json number,title,mergeCommit,commits"
-  eval "$pr_cmd"
+  echo "Finding commits with PR IDs in headline: $grep_pattern..." >&2
+
+  # Search specifically in the message headline for PR IDs
+  git_cmd="git log \"$source_branch\" --no-merges --grep=\"${grep_pattern}\" --pretty=format:'{\"oid\":\"%H\",\"messageHeadline\":\"%s\",\"messageBody\":\"%b\"}'"
+
+  echo "$git_cmd" >&2
+
+
+  local direct_commits
+  direct_commits=$(eval "$git_cmd" | tr -d '\000-\037' | jq -s '.')
+  echo "$direct_commits"
+
 }
 
 get_direct_commits() {
   local date_range=""
+
+#    local exclude_pattern_query=""
+#    for pattern in "${exclude_patterns[@]}"; do
+#      exclude_pattern_query+=" NOT in:title \\\"${pattern}\\\""
+#    done
 
   if [ -n "$mergedSinceDate" ] && [ -n "$mergedUntilDate" ]; then
     date_range="--since=\"$mergedSinceDate\" --until=\"$mergedUntilDate\""
@@ -246,11 +260,7 @@ get_direct_commits() {
 #
 #  # Filter out commits that came from PRs
   local direct_commits
-
   direct_commits=$(eval "$git_cmd" | tr -d '\000-\037' | jq -s '.')
-#    direct_commits=$(eval "$git_cmd" | jq -R 'fromjson?' |  jq -s 'map(select(. != null))')
-
-#  direct_commits=$(eval "$git_cmd" | grep -v '(#[0-9]\+)' | jq -s 'map({commits: [.]})')
   echo "$direct_commits"
 }
 
@@ -421,3 +431,4 @@ echo "$next_version" > version.txt
 echo "version.txt: Updated version to $next_version"
 
 echo "Done!"
+
