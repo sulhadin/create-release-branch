@@ -8,10 +8,9 @@ release_version=""
 mergedSinceDate=""
 mergedUntilDate=""
 include_pr_ids=""
-exclude_patterns=()
+exclude_patterns=""
 verbose_detail=false
 no_action=false
-repo_name="bilira-org/kripto-mobile"  # Default repository name
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -37,7 +36,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --exclude)
-      exclude_patterns+=("$2")
+      exclude_patterns="$2"
       shift 2
       ;;
     --include-pr-ids)
@@ -53,10 +52,6 @@ while [[ $# -gt 0 ]]; do
       # Handle as a flag without requiring a value
       no_action=true
       shift 1
-      ;;
-    --repo)
-      repo_name="$2"
-      shift 2
       ;;
     *)
       echo "Unknown option: $1"
@@ -211,40 +206,47 @@ increment_version() {
 }
 
 get_prs_by_ids() {
-  local pr_ids
-  IFS=',' read -ra pr_ids <<< "$include_pr_ids"
+   # Parse comma-separated PR IDs
+   IFS=',' read -ra pr_ids <<< "$include_pr_ids"
+   local include_pr_id_query=""
+   for pattern in "${pr_ids[@]}"; do
+     include_pr_id_query+=" is:pr \\\"${pattern}\\\""
+   done
 
-  local grep_pattern=""
-  for id in "${pr_ids[@]}"; do
-    # Add each PR ID to the grep pattern with OR operator
-    if [ -z "$grep_pattern" ]; then
-      grep_pattern="(#${id})"
-    else
-      grep_pattern="${grep_pattern}\|(#${id})"
-    fi
-  done
+   # Get PR data with merge commit hashes using GitHub API
+   pr_cmd="gh pr list --state merged --base \"$source_branch\" --search \"$include_pr_id_query\" --json number,mergeCommit"
 
-  echo "Finding commits with PR IDs in headline: $grep_pattern..." >&2
+   # Extract just the merge commit hashes
+   merge_commits=$(eval "$pr_cmd" | jq -r '.[].mergeCommit.oid' | tr '\n' ' ')
 
-  # Search specifically in the message headline for PR IDs
-  git_cmd="git log \"$source_branch\" --no-merges --grep=\"${grep_pattern}\" --pretty=format:'{\"oid\":\"%H\",\"messageHeadline\":\"%s\",\"messageBody\":\"%b\"}'"
+   if [ -z "$merge_commits" ]; then
+     echo "No matching PRs found" >&2
+     return 1
+   fi
 
-  echo "$git_cmd" >&2
+   # Now use git log with specific commit hashes to get all details including messageBody
+   git_cmd="git log --no-walk $merge_commits --pretty=format:'{\"oid\":\"%H\",\"messageHeadline\":\"%s\",\"messageBody\":\"%b\"}'"
 
+  #  local direct_commits
+  #  direct_commits=$(eval "$git_cmd" | tr -d '\000-\037' | jq -s '.')
+  #  echo "$direct_commits"
 
-  local direct_commits
-  direct_commits=$(eval "$git_cmd" | tr -d '\000-\037' | jq -s '.')
-  echo "$direct_commits"
-
+   eval "$git_cmd"
 }
 
 get_direct_commits() {
   local date_range=""
+  local exclude_filter=""
 
-#    local exclude_pattern_query=""
-#    for pattern in "${exclude_patterns[@]}"; do
-#      exclude_pattern_query+=" NOT in:title \\\"${pattern}\\\""
-#    done
+  if [ -n "$exclude_patterns" ]; then
+    # Replace commas with pipe symbols for grep OR pattern
+    local pattern_string=$(echo "$exclude_patterns" | sed 's/,/|/g')
+
+    # Create a post-filtering command
+    exclude_filter="| grep -v -E \"($pattern_string)\""
+  fi
+
+
 
   if [ -n "$mergedSinceDate" ] && [ -n "$mergedUntilDate" ]; then
     date_range="--since=\"$mergedSinceDate\" --until=\"$mergedUntilDate\""
@@ -254,14 +256,20 @@ get_direct_commits() {
     date_range="--until=\"$mergedUntilDate\""
   fi
 
-  # Get all commits on the branch within the date range
-  # Format direct commits to match PR commits structure
+
   local git_cmd="git log $source_branch --no-merges $date_range --format='{\"oid\":\"%H\",\"messageHeadline\":\"%s\",\"messageBody\":\"%b\"}'"
-#
-#  # Filter out commits that came from PRs
-  local direct_commits
-  direct_commits=$(eval "$git_cmd" | tr -d '\000-\037' | jq -s '.')
-  echo "$direct_commits"
+
+#  local direct_commits
+#  direct_commits=$(eval "$git_cmd" | tr -d '\000-\037' | jq -s '.')
+#  echo "$direct_commits"
+
+  # If we have exclude patterns, filter the output
+  if [ -n "$exclude_filter" ]; then
+    eval "$git_cmd $exclude_filter"
+  else
+    eval "$git_cmd"
+  fi
+
 }
 
 get_release_notes(){
@@ -331,7 +339,7 @@ if [ -n "$include_pr_ids" ]; then
 else
   pr_data=$(get_direct_commits)
 fi
-
+echo "here we go safiye"
 log_verbose "$pr_data"
 
 # Check if pr_data is empty or just "[]"
