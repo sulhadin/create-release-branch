@@ -44,7 +44,7 @@ while [[ $# -gt 0 ]]; do
       include_pr_ids="$2"
       shift 2
       ;;
-    --verbose)
+      --verbose)
       # Handle as a flag without requiring a value
       verbose_detail=true
       shift 1
@@ -86,127 +86,6 @@ if [ -n "$CI" ] || [ -n "$GITHUB_ACTIONS" ]; then
 fi
 
 
-#deprecated
-#format_changelog(){
-#   local changelog_content="$1"
-#   local repo_name="$2"
-#
-#   # Convert commit hashes to GitHub commit links
-#   # [<commit-url|commit-hash>]
-#   changelog_content=$(echo "$changelog_content" | sed -E "s|([^\\[])([a-f0-9]{7,8})([^a-f0-9])|\\1[\\2](https://github.com/${repo_name}/commit/\\2)\\3|g")
-#
-#   # Convert ClickUp IDs to ClickUp links
-#   # Format: #86c1rbjd1 -> [#86c1rbjd1](https://app.clickup.com/t/86c1rbjd1)
-#   changelog_content=$(echo "$changelog_content" | sed -E "s|#([a-zA-Z0-9]{8}[a-z0-9]*)|[#\\1](https://app.clickup.com/t/\\1)|g")
-#
-#   # Convert PR numbers to GitHub PR links
-#   # Format: (#799) -> ([#799](https://github.com/bilira-org/kripto-mobile/pull/799))
-#   changelog_content=$(echo "$changelog_content" | sed -E "s|\\(#([0-9]+)\\)|(\\[#\\1\\](https://github.com/${repo_name}/pull/\\1))|g")
-#
-#   echo "$changelog_content"
-#}
-##deprecated
-#generate_changelog_entry() {
-#  local version="$1"
-#  local pr_data="$2"
-#  local release_date
-#  release_date=$(date +"%Y-%m-%d")
-#
-#  # Start building the changelog entry
-#  local changelog_entry
-#  changelog_entry="## [${version}] - ${release_date}"$'\n\n'
-#
-#
-#  # Extract PR titles and categorize them
-#  local features=""
-#  local fixes=""
-#  local breaking=""
-#  local others=""
-#
-#  temp_file=$(mktemp)
-#  echo "$pr_data" | tr -d '\000-\037' | jq -c '.[]' > "$temp_file" 2>/dev/null
-#
-#  while read -r pr; do
-#    local pr_number
-#    local pr_title
-#    local pr_commit
-#    pr_commit=$(git rev-parse --short "$(echo "$pr" | jq -r '.mergeCommit.oid')")
-#    pr_number=$(echo "$pr" | jq -r '.number')
-#    pr_title=$(echo "$pr" | jq -r '.title')
-#
-#    # Extract commit messages to look for conventional commit prefixes
-#    local commit_messages
-#    commit_messages=$(echo "$pr" | jq -r '.commits[].messageHeadline')
-#
-#    if echo "$commit_messages" | grep -qiE "^(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
-#      breaking+="- ${pr_title} (#${pr_number}) (${pr_commit})\n"
-#    # If no breaking changes, check the first line for feat/fix/perf, with or without colon
-#    elif echo "$commit_messages" | grep -qiE "^(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
-#      features+="- ${pr_title} (#${pr_number}) (${pr_commit})\n"
-#    elif echo "$commit_messages" | grep -qiE "^(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
-#      fixes+="- ${pr_title} (#${pr_number}) (${pr_commit})\n"
-#    else
-#      others+="- ${pr_title} (#${pr_number}) (${pr_commit})\n"
-#    fi
-#  done < "$temp_file"
-#
-#  rm "$temp_file"
-#
-#  # Add sections to changelog entry if they contain changes
-#  if [ -n "$breaking" ]; then
-#    changelog_entry+="### BREAKING CHANGES\n\n${breaking}\n"
-#  fi
-#
-#  if [ -n "$features" ]; then
-#    changelog_entry+="### Features\n\n${features}\n"
-#  fi
-#
-#  if [ -n "$fixes" ]; then
-#    changelog_entry+="### Bug Fixes\n\n${fixes}\n"
-#  fi
-#
-#  if [ -n "$others" ]; then
-#    changelog_entry+="### Other Changes\n\n${others}\n"
-#  fi
-#
-#  echo "$changelog_entry"
-#}
-##deprecated
-#update_changelog() {
-#  local version="$1"
-#  local pr_data="$2"
-#  local changelog_file="CHANGELOG.md"
-#
-#  # Generate new changelog entry
-#  local new_entry
-#  new_entry=$(generate_changelog_entry "$version" "$pr_data")
-##
-#  echo "$new_entry"
-#
-# new_entry=$(format_changelog "$new_entry" "$repo_name")
-#
-#  # Check if CHANGELOG.md exists
-#  if [ ! -f "$changelog_file" ]; then
-#    # Create a new CHANGELOG.md file
-#    printf "# Changelog\n\nAll notable changes to this project will be documented in this file.\n\n${new_entry}" > "$changelog_file"
-#  else
-#    # Insert the new entry after the header
-#    entry_file=$(mktemp)
-#    echo "$new_entry" > "$entry_file"
-#
-#    # Use sed to insert after the first line
-#    sed "4 r $entry_file" "$changelog_file" > "${changelog_file}.new"
-#
-#    # Clean up
-#    rm "$entry_file"
-#    mv "${changelog_file}.new" "$changelog_file"
-#
-#  fi
-#
-#  echo "Updated $changelog_file with changes for version $version"
-#}
-
-# Function to log messages if verbose is enabled
 log_verbose() {
   if $verbose_detail; then
     echo "${CYAN}[VERBOSE]${RESET}"
@@ -216,8 +95,9 @@ log_verbose() {
 }
 
 cherry_pick_pr_commits() {
-  local pr_number="$1"
-  local commit_hash="$2"
+  local commit_hash="$1"
+  local pr_title="$2"
+  local pr_number="$3"
 
   echo "Cherry-picking commit for PR #$pr_number: $commit_hash"
 
@@ -257,7 +137,12 @@ cherry_pick_pr_commits() {
       return 0
     else
       # We have changes, commit them
-      git commit -m "Cherry-pick changes from PR #$pr_number ($commit_hash)"
+      if [ -n "$pr_number" ]; then
+        git commit -m "$pr_title (#$pr_number)"
+      else
+        git commit -m "$pr_title"
+      fi
+
       echo "Successfully cherry-picked changes from PR #$pr_number"
       return 0
     fi
@@ -270,8 +155,6 @@ cherry_pick_pr_commits() {
   fi
 }
 
-
-# Add this function to your script
 debug_commits() {
     local source_branch="$1"
     local target_branch="$2"
@@ -327,16 +210,7 @@ increment_version() {
   echo "$major.$minor.$patch"
 }
 
-get_prs_by() {
-  date_query=""
-  if [ -n "$mergedSinceDate" ] && [ -n "$mergedUntilDate" ]; then
-    date_query="merged:$mergedSinceDate..$mergedUntilDate"
-  elif [ -n "$mergedSinceDate" ]; then
-    date_query="merged:>=$mergedSinceDate"
-  elif [ -n "$mergedUntilDate" ]; then
-    date_query="merged:<=$mergedUntilDate"
-  fi
-
+get_prs_by_ids() {
   local exclude_pattern_query=""
   for pattern in "${exclude_patterns[@]}"; do
     exclude_pattern_query+=" NOT in:title \\\"${pattern}\\\""
@@ -351,8 +225,33 @@ get_prs_by() {
   # Get merged PRs with their merge commits
   echo "Finding merged PRs with query: $exclude_pattern_query..." >&2
   #gh pr list --state merged --base dev --search "merged:2025-05-27T00:00:00Z..2025-05-30T00:00:00Z NOT in:title \"#86c1c1uka\" NOT in:title \"#0\""
-  pr_cmd="gh pr list --state merged --base \"$source_branch\" --search \"$date_query$exclude_pattern_query$include_pr_id_query\" --json number,title,mergeCommit,commits"
+  pr_cmd="gh pr list --state merged --base \"$source_branch\" --search \"$exclude_pattern_query$include_pr_id_query\" --json number,title,mergeCommit,commits"
   eval "$pr_cmd"
+}
+
+get_direct_commits() {
+  local date_range=""
+
+  if [ -n "$mergedSinceDate" ] && [ -n "$mergedUntilDate" ]; then
+    date_range="--since=\"$mergedSinceDate\" --until=\"$mergedUntilDate\""
+  elif [ -n "$mergedSinceDate" ]; then
+    date_range="--since=\"$mergedSinceDate\""
+  elif [ -n "$mergedUntilDate" ]; then
+    date_range="--until=\"$mergedUntilDate\""
+  fi
+
+  # Get all commits on the branch within the date range
+  # Format direct commits to match PR commits structure
+  local git_cmd="git log $source_branch --no-merges $date_range --format='{\"oid\":\"%H\",\"messageHeadline\":\"%s\",\"messageBody\":\"%b\"}'"
+#
+#  # Filter out commits that came from PRs
+  local direct_commits
+
+  direct_commits=$(eval "$git_cmd" | tr -d '\000-\037' | jq -s '.')
+#    direct_commits=$(eval "$git_cmd" | jq -R 'fromjson?' |  jq -s 'map(select(. != null))')
+
+#  direct_commits=$(eval "$git_cmd" | grep -v '(#[0-9]\+)' | jq -s 'map({commits: [.]})')
+  echo "$direct_commits"
 }
 
 get_release_notes(){
@@ -417,11 +316,13 @@ commit_messages=$(echo "$json_data" | grep -o '"messageHeadline"[[:space:]]*:[[:
   echo "$new_version"
 }
 
-
-pr_data=$(get_prs_by)
+if [ -n "$include_pr_ids" ]; then
+  pr_data=$(get_prs_by_ids)
+else
+  pr_data=$(get_direct_commits)
+fi
 
 log_verbose "$pr_data"
-
 
 # Check if pr_data is empty or just "[]"
 if [ -z "$pr_data" ] || [ "$pr_data" = "[]" ]; then
@@ -430,16 +331,21 @@ if [ -z "$pr_data" ] || [ "$pr_data" = "[]" ]; then
 fi
 
 
+if $no_action; then
+  log_verbose "$YELLOW NO ACTION TAKEN! $RESET"
+  exit 0
+fi
+
 # Checkout main branch to start with a clean state
 git checkout "origin/$target_branch"
 git branch --show-current
-
 
 
 # Get the current version from version.json
 if [ -z "$release_version" ]; then
   current_version=$(jq -r '.version' version.json)
 fi
+
 log_verbose "Current version from version.json: $current_version"
 
 # Calculate the next version based on PR data
@@ -471,15 +377,9 @@ echo "Current branch: $(git branch --show-current)"
 
 debug_commits "$source_branch" "$target_branch" "$release_branch"
 
-if $no_action; then
-  log_verbose "$YELLOW NO ACTION TAKEN! $RESET"
-  exit 0
-fi
-
 # Create a temporary file for the PR data
 temp_file=$(mktemp)
 echo "$pr_data" | tr -d '\000-\037' | jq -c '.[]' > "$temp_file" 2>/dev/null
-
 
 # Now extract the PR numbers and commit hashes from your PR data
 echo "Filtering PRs and extracting commit hashes..."
@@ -488,8 +388,11 @@ echo "Filtering PRs and extracting commit hashes..."
 while read -r pr; do
   commit=$(echo "$pr" | jq -r '.mergeCommit.oid')
   pr_number=$(echo "$pr" | jq -r '.number')
+  pr_title=$(echo "$pr" | jq -r '.title')
 
-  cherry_pick_pr_commits "$pr_number" "$commit"
+  echo "$pr_title"
+
+  cherry_pick_pr_commits "$commit" "$pr_title" "$pr_number"
 done < "$temp_file"
 
 # Remove temporary file
