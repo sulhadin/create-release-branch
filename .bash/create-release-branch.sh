@@ -211,15 +211,6 @@ increment_version() {
 }
 
 get_prs_by_ids() {
-  date_query=""
-  if [ -n "$mergedSinceDate" ] && [ -n "$mergedUntilDate" ]; then
-    date_query="merged:$mergedSinceDate..$mergedUntilDate"
-  elif [ -n "$mergedSinceDate" ]; then
-    date_query="merged:>=$mergedSinceDate"
-  elif [ -n "$mergedUntilDate" ]; then
-    date_query="merged:<=$mergedUntilDate"
-  fi
-
   local exclude_pattern_query=""
   for pattern in "${exclude_patterns[@]}"; do
     exclude_pattern_query+=" NOT in:title \\\"${pattern}\\\""
@@ -234,7 +225,7 @@ get_prs_by_ids() {
   # Get merged PRs with their merge commits
   echo "Finding merged PRs with query: $exclude_pattern_query..." >&2
   #gh pr list --state merged --base dev --search "merged:2025-05-27T00:00:00Z..2025-05-30T00:00:00Z NOT in:title \"#86c1c1uka\" NOT in:title \"#0\""
-  pr_cmd="gh pr list --state merged --base \"$source_branch\" --search \"$date_query$exclude_pattern_query$include_pr_id_query\" --json number,title,mergeCommit,commits"
+  pr_cmd="gh pr list --state merged --base \"$source_branch\" --search \"$exclude_pattern_query$include_pr_id_query\" --json number,title,mergeCommit,commits"
   eval "$pr_cmd"
 }
 
