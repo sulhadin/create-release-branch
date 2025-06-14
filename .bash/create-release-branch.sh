@@ -325,7 +325,6 @@ commit_messages=$(echo "$json_data" | grep -o '"messageHeadline"[[:space:]]*:[[:
   echo "$new_version"
 }
 
-
 if [ -n "$include_pr_ids" ]; then
   pr_data=$(get_prs_by_ids)
 else
@@ -346,11 +345,9 @@ if $no_action; then
   exit 0
 fi
 
-
 # Checkout main branch to start with a clean state
 git checkout "origin/$target_branch"
 git branch --show-current
-
 
 
 # Get the current version from version.json
@@ -392,7 +389,6 @@ debug_commits "$source_branch" "$target_branch" "$release_branch"
 # Create a temporary file for the PR data
 temp_file=$(mktemp)
 echo "$pr_data" | tr -d '\000-\037' | jq -c '.[]' > "$temp_file" 2>/dev/null
-
 
 # Now extract the PR numbers and commit hashes from your PR data
 echo "Filtering PRs and extracting commit hashes..."
