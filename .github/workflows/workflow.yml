@@ -1,4 +1,4 @@
-name: Release Branch Creation
+name: Create Release Branch
 on:
   workflow_dispatch:
     inputs:
@@ -36,7 +36,22 @@ env:
   TZ: Europe/Istanbul
 permissions: write-all
 jobs:
+  create-release-branch:
+    runs-on: ubuntu-latest
+    environment: 'staging'
+    env:
+      GH_TOKEN: ${{ secrets.PR_CREATION_TOKEN }}
+    steps:
+      - name: Create Release Branch
+        uses: sulhadin/release-branch-action@v1
+        with:
+          source-branch: 'dev'
+          target-branch: 'main'
+          current-version: '1.0.0'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
   create-release:
+    if: false
     runs-on: ubuntu-latest
     environment: 'staging'
     env:
@@ -53,7 +68,7 @@ jobs:
           #Configure git, add and commit, pull any new changes (with rebase) and push
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-      
+
 
       - name: 'Generate Release Branch'
         env:
@@ -99,8 +114,8 @@ jobs:
             echo "::error::Failed to create release branch"
             exit 1
           fi
-
-    
+          
+          
           bash ./.bash/utils/update-version.sh "$(cat version.txt)"
           
           version=$(jq -r '.version' version.json)
@@ -117,7 +132,7 @@ jobs:
           echo "::group::PR Data Verbose Logs"
           cat CHANGELOG.md
           echo "::endgroup::"
-      
+          
           CURRENT_BRANCH=$(git branch --show-current)
           echo "Current branch after script: $CURRENT_BRANCH"
 
