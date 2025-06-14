@@ -27607,7 +27607,7 @@ async function run() {
 
         // Update the version.json file
         await exec.exec('bash', [
-            path.join(scriptDir, 'update-version.sh'),
+            __nccwpck_require__.ab + "update-version.sh",
             newVersion
         ]);
 
