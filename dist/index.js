@@ -16135,7 +16135,7 @@ async function httpNetworkFetch (
 
   async function dispatch ({ body }) {
     const url = requestCurrentURL(request)
-    /** @type {import('../..').Agent} */
+    /** @type {import('../index').Agent} */
     const agent = fetchParams.controller.dispatcher
 
     return new Promise((resolve, reject) => agent.dispatch(
@@ -22478,7 +22478,7 @@ function lowerCaseEntries (headers) {
 }
 
 /**
- * @param {import('../../index').Headers|string[]|Record<string, string>} headers
+ * @param {import('../index').Headers|string[]|Record<string, string>} headers
  * @param {string} key
  */
 function getHeaderByName (headers, key) {

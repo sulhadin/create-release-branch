@@ -1,6 +1,6 @@
 name: 'Release Branch Creator'
 description: 'Creates a release branch, updates version, and generates changelog based on PR data'
-author: 'Your Name'
+author: 'Sulhadin Öney'
 
 inputs:
   source-branch:
@@ -48,4 +48,4 @@ outputs:
 
 runs:
   using: 'node16'
-  main: 'index.js'
+  main: '../../dist/index.js'
