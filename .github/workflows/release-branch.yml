@@ -97,8 +97,10 @@ jobs:
           fi
 
     
-          pr_data=$(cat pr_data.txt)
-          bash ./.bash/utils/generate_changelog.sh $version $pr_data
+          bash ./.bash/utils/update-version.sh "$(cat version.txt)"
+          
+          version=$(jq -r '.version' version.json)
+          bash ./.bash/utils/generate_changelog.sh "$version" "$(cat pr_data.txt)"
           
           echo "::group::Release Notes Verbose Logs"
           cat release_notes.txt
@@ -111,22 +113,13 @@ jobs:
           echo "::group::PR Data Verbose Logs"
           cat CHANGELOG.md
           echo "::endgroup::"
-
-          #version.txt
-          #release_notes.txt
-          #pr_data.txt
-          #CHANGELOG.md
-          
-          new_version=$(cat version.txt)
-          bash ./.bash/utils/update-version.sh $new_version
-          
-          rm -f version.txt release_notes.txt pr_data.txt
-               
-          version=$(jq -r '.version' version.json)
+      
           CURRENT_BRANCH=$(git branch --show-current)
           echo "Current branch after script: $CURRENT_BRANCH"
-      
 
+          #CLEAN UP
+          rm -f version.txt release_notes.txt pr_data.txt
+          
           #Configure git, add and commit, pull any new changes (with rebase) and push
           git add .
           git commit -m "bump(version): app to ${version}"
