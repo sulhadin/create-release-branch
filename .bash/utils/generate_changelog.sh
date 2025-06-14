@@ -48,29 +48,27 @@ generate_changelog_entry() {
   local others=""
 
   temp_file=$(mktemp)
-  echo "$pr_data" | tr -d '\000-\037' | jq -c '.[]' > "$temp_file" 2>/dev/null
+  echo "$pr_data" | jq -c '.[]' > "$temp_file" 2>/dev/null
 
   while read -r pr; do
-    local pr_number
     local pr_title
     local pr_commit
-    pr_commit=$(git rev-parse --short "$(echo "$pr" | jq -r '.mergeCommit.oid')")
-    pr_number=$(echo "$pr" | jq -r '.number')
-    pr_title=$(echo "$pr" | jq -r '.title')
+    pr_commit=$(git rev-parse --short "$(echo "$pr" | jq -r '.oid')")
+    pr_title=$(echo "$pr" | jq -r '.messageHeadline')
 
     # Extract commit messages to look for conventional commit prefixes
     local commit_messages
-    commit_messages=$(echo "$pr" | jq -r '.commits[].messageHeadline')
+    commit_messages=$(echo "$pr" | jq -r '.[].messageBody')
 
-    if echo "$commit_messages" | grep -qiE "^(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
-      breaking+="- ${pr_title} (#${pr_number}) (${pr_commit})\n"
+    if echo "$commit_messages" | grep -qiE "(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
+      breaking+="- ${pr_title} (${pr_commit})\n"
     # If no breaking changes, check the first line for feat/fix/perf, with or without colon
-    elif echo "$commit_messages" | grep -qiE "^(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
-      features+="- ${pr_title} (#${pr_number}) (${pr_commit})\n"
-    elif echo "$commit_messages" | grep -qiE "^(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
-      fixes+="- ${pr_title} (#${pr_number}) (${pr_commit})\n"
+    elif echo "$commit_messages" | grep -qiE "(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
+      features+="- ${pr_title} (${pr_commit})\n"
+    elif echo "$commit_messages" | grep -qiE "(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
+      fixes+="- ${pr_title} (${pr_commit})\n"
     else
-      others+="- ${pr_title} (#${pr_number}) (${pr_commit})\n"
+      others+="- ${pr_title} (${pr_commit})\n"
     fi
   done < "$temp_file"
 
