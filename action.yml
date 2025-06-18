@@ -1,0 +1,174 @@
+name: 'create-release-branch'
+description: 'Creates a release branch, updates version, and generates changelog based on PR data'
+author: 'Sulhadin Öney'
+branding:
+  icon: 'award'
+  color: black
+
+inputs:
+  source-branch:
+    description: 'Source branch to cherry-pick commits from'
+    required: true
+    default: 'dev'
+  target-branch:
+    description: 'Target branch to create the release from'
+    required: true
+    default: 'main'
+  branch-prefix:
+    description: 'Prefix for the release branch name'
+    required: false
+    default: 'release-branch/'
+  current-version:
+    description: 'Current version of the project'
+    required: true
+  merged-since:
+    description: 'Include PRs merged since date (format: YYYY-MM-DDTHH:MM:SSZ)'
+    required: false
+  merged-until:
+    description: 'Include PRs merged until date (format: YYYY-MM-DDTHH:MM:SSZ)'
+    required: false
+  include-pr-ids:
+    description: 'Comma-separated list of PR IDs to include'
+    required: false
+  exclude-pattern:
+    description: 'Pattern to exclude PRs/commits'
+    required: false
+  verbose:
+    description: 'Enable verbose logging'
+    required: false
+    default: 'false'
+  github-token:
+    description: 'GitHub token for authentication'
+    required: true
+
+outputs:
+  new-version:
+    description: 'The new version created by the action'
+  release-branch:
+    description: 'The name of the created release branch'
+  pr-url:
+    description: 'URL of the created pull request'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Git
+      run: |
+        # Configure git
+        git config --global user.name "${{ github.actor }}"
+        git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+        
+        # Set GitHub token for API access
+        export GH_TOKEN="${{ inputs.github-token }}"
+      shell: bash
+
+    - name: Generate Release Branch
+      run: |
+        echo "Repository: ${{ github.repository }}"
+        echo "Repository Name: ${{ github.event.repository.name }}"
+
+        echo "Parameters: --source ${{ inputs.source-branch }} --target ${{ inputs.target-branch }}"
+        
+        # Build command with only non-empty parameters
+        CMD="./scripts/create-release-branch.sh --source ${{ inputs.source-branch }} --target ${{ inputs.target-branch }}"
+        
+        # Add optional parameters only if they have values
+        if [ ! -z "${{ inputs.merged-since }}" ]; then
+          echo "Param: merged-since = ${{ inputs.merged-since }}"
+          CMD="$CMD --from-date ${{ inputs.merged-since }}"
+        fi
+        
+        if [ ! -z "${{ inputs.merged-until }}" ]; then
+          echo "Param: merged-until = ${{ inputs.merged-until }}"
+          CMD="$CMD --to-date ${{ inputs.merged-until }}"
+        fi
+        
+        if [ ! -z "${{ inputs.include-pr-ids }}" ]; then
+          echo "Param: include-pr-ids = ${{ inputs.include-pr-ids }}"
+          CMD="$CMD --include-pr-ids ${{ inputs.include-pr-ids }}"
+        fi
+        
+        if [ ! -z "${{ inputs.exclude-pattern }}" ]; then
+          echo "Param: exclude-pattern = ${{ inputs.exclude-pattern }}"
+          CMD="$CMD --exclude ${{ inputs.exclude-pattern }}"
+        fi
+        
+        if [ "${{ inputs.verbose }}" = "true" ]; then
+          echo "Param: verbose = true"
+          CMD="$CMD --verbose"
+        fi
+        
+        # Add current version
+        CMD="$CMD --version ${{ inputs.current-version }}"
+        
+        # Execute the command
+        echo "Executing: $CMD"
+        
+        # Run script with error handling
+        if ! bash $CMD; then
+          echo "::error::Failed to create release branch"
+          exit 1
+        fi
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+
+    - name: Update Version and Generate Changelog
+      run: |
+        # Update version
+        bash ./scripts/update-version.sh "$(cat version.txt)"
+        
+        # Get the new version
+        version=$(jq -r '.version' version.json)
+        
+        # Generate changelog
+        bash ./scripts/generate-changelog.sh "$version" "$(cat pr_data.txt)"
+        
+        # Output logs for debugging
+        echo "::group::Release Notes"
+        cat release_notes.txt
+        echo "::endgroup::"
+        
+        echo "::group::PR Data"
+        cat pr_data.txt
+        echo "::endgroup::"
+        
+        echo "::group::Changelog"
+        cat CHANGELOG.md
+        echo "::endgroup::"
+        
+        # Get current branch
+        CURRENT_BRANCH=$(git branch --show-current)
+        echo "Current branch after script: $CURRENT_BRANCH"
+        
+        # Set output variables
+        echo "new-version=$version" >> $GITHUB_OUTPUT
+        echo "release-branch=$CURRENT_BRANCH" >> $GITHUB_OUTPUT
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+
+    - name: Commit and Push Changes
+      run: |
+        version=$(jq -r '.version' version.json)
+        CURRENT_BRANCH=$(git branch --show-current)
+        
+        # Clean up temporary files
+        rm -f version.txt release_notes.txt pr_data.txt
+        
+        # Commit and push changes
+        git add .
+        git commit -m "bump(version): app to ${version}"
+        git pull --rebase origin $CURRENT_BRANCH
+        git push origin HEAD:$CURRENT_BRANCH
+        
+        echo "::notice::New version: $version pushed to $CURRENT_BRANCH"
+        
+        # If PR URL file exists, set as output
+        if [ -f pr_url.txt ]; then
+          echo "pr-url=$(cat pr_url.txt)" >> $GITHUB_OUTPUT
+          rm -f pr_url.txt
+        fi
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
