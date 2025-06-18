@@ -1,0 +1,132 @@
+name: Release Branch Creation
+on:
+  workflow_dispatch:
+    inputs:
+      source-branch:
+        description: 'Source Branch'
+        required: true
+        default: 'dev'
+        type: string
+      target-branch:
+        description: 'Target Branch'
+        required: true
+        default: 'main'
+        type: choice
+        options:
+          - main
+      mergedSince:
+        description: 'From Date: - format: YYYY-MM-DDTHH:MM:SSZ - e.g. 2025-01-7T12:00:00Z'
+        required: false
+        default: ''
+      mergedUntil:
+        description: 'To Date: - format: YYYY-MM-DDTHH:MM:SSZ - e.g. 2025-01-14T12:00:00Z'
+        required: false
+        default: ''
+      includePrIds:
+        description: 'Default Pr IDs - 782,795,797,771'
+        required: false
+        default: ''
+      excludePattern:
+        description: 'Exclude pattern - #86c3rnXzw, #0'
+        required: false
+        default: ''
+env:
+  SOURCE_BRANCH: ${{ github.event.inputs.source-branch }}
+  TARGET_BRANCH: ${{ github.event.inputs.target-branch }}
+  TZ: Europe/Istanbul
+permissions: write-all
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    environment: 'staging'
+    env:
+      GH_TOKEN: ${{ secrets.PR_CREATION_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Critical - fetch full history
+          token: ${{ secrets.PR_CREATION_TOKEN }}
+
+      - name: Setup Git
+        run: |
+          #Configure git, add and commit, pull any new changes (with rebase) and push
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+      
+
+      - name: 'Generate Release Branch'
+        env:
+          GH_TOKEN: ${{ secrets.PR_CREATION_TOKEN }}
+        run: |
+          echo "Repository: ${{ github.repository }}"
+          echo "Repository Name: ${{ github.event.repository.name }}"
+
+          echo "Param1: --source ${{ env.SOURCE_BRANCH }} --target ${{ env.TARGET_BRANCH }}  --verbose"
+          
+          # Build command with only non-empty parameters
+          CMD="./.bash/create-release-branch.sh --source ${{ env.SOURCE_BRANCH }} --target ${{ env.TARGET_BRANCH }}"
+          
+          # Add optional parameters only if they have values
+          if [ ! -z "${{inputs.mergedSince}}" ]; then
+            echo "Param1: ${{inputs.mergedSince}}"
+            CMD="$CMD --from-date ${{inputs.mergedSince}}"
+          fi
+          
+          if [ ! -z "${{inputs.mergedUntil}}" ]; then
+            echo "Param2: ${{inputs.mergedUntil}}"
+            CMD="$CMD --to-date ${{inputs.mergedUntil}}"
+          fi
+          
+          if [ ! -z "${{inputs.includePrIds}}" ]; then
+            echo "Param3: ${{inputs.includePrIds}}"
+            CMD="$CMD --include-pr-ids ${{inputs.includePrIds}}"
+          fi
+          
+          if [ ! -z "${{inputs.excludePattern}}" ]; then
+            echo "Param4: ${{inputs.excludePattern}}"
+            CMD="$CMD --exclude ${{inputs.excludePattern}}"
+          fi
+          
+          current_version=$(jq -r '.version' version.json)
+          
+          CMD="$CMD --version $current_version"
+          
+          # Execute the command
+          echo "Executing: $CMD"
+          # Run script with error handling
+          if ! bash $CMD; then
+            echo "::error::Failed to create release branch"
+            exit 1
+          fi
+
+    
+          bash ./.bash/utils/update-version.sh "$(cat version.txt)"
+          
+          version=$(jq -r '.version' version.json)
+          bash ./.bash/utils/generate-changelog.sh "$version" "$(cat pr_data.txt)"
+          
+          echo "::group::Release Notes Verbose Logs"
+          cat release_notes.txt
+          echo "::endgroup::"
+          
+          echo "::group::PR Data Verbose Logs"
+          cat pr_data.txt
+          echo "::endgroup::"
+          
+          echo "::group::PR Data Verbose Logs"
+          cat CHANGELOG.md
+          echo "::endgroup::"
+      
+          CURRENT_BRANCH=$(git branch --show-current)
+          echo "Current branch after script: $CURRENT_BRANCH"
+
+          #CLEAN UP
+          rm -f version.txt release_notes.txt pr_data.txt
+          
+          #Configure git, add and commit, pull any new changes (with rebase) and push
+          git add .
+          git commit -m "bump(version): app to ${version}"
+          git pull --rebase origin $CURRENT_BRANCH
+          git push origin HEAD:$CURRENT_BRANCH
+          echo "::notice::New version: $version pushed to $CURRENT_BRANCH"
