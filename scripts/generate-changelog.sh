@@ -1,15 +1,21 @@
 if [ -z "$1" ]; then
-  echo "Usage: sh file-name <pr_data>"
+  echo "Usage: sh file-name <version> <pr_data> <filename>"
   exit 1
 fi
 
 if [ -z "$2" ]; then
-  echo "Usage: sh file-name pr_data"
+  echo "Usage: sh file-name <version> <pr_data> <filename>"
+  exit 1
+fi
+
+if [ -z "$3" ]; then
+  echo "Usage: sh file-name <version> <pr_data> <filename>"
   exit 1
 fi
 
 new_version=$1
 pr_changelog=$2
+changelog_file_path=$3
 
 format_changelog(){
    local changelog_content="$1"
@@ -97,7 +103,11 @@ generate_changelog_entry() {
 update_changelog() {
   local version="$1"
   local pr_data="$2"
-  local changelog_file="CHANGELOG.md"
+  local changelog_file="$3"
+
+  changelog_dir=$(dirname "$changelog_file")
+  mkdir -p "$changelog_dir"
+
 
   # Generate new changelog entry
   local new_entry
@@ -128,4 +138,4 @@ update_changelog() {
   echo "Updated $changelog_file with changes for version $version"
 }
 
-update_changelog "$new_version" "$pr_changelog"
+update_changelog "$new_version" "$pr_changelog" "$changelog_file_path"
