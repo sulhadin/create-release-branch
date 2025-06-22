@@ -5,6 +5,7 @@ source_branch="dev"
 target_branch="main"
 release_branch_prefix="release-branch/"
 current_version=""
+version_file=""
 mergedSinceDate=""
 mergedUntilDate=""
 include_pr_ids=""
@@ -23,8 +24,8 @@ while [[ $# -gt 0 ]]; do
       target_branch="$2"
       shift 2
       ;;
-    --version)
-      current_version="$2"
+    --version-file)
+      version_file="$2"
       shift 2
       ;;
     --from-date)
@@ -343,7 +344,6 @@ else
   pr_data=$(get_direct_commits)
 fi
 
-log_verbose "Current version from version.json: $current_version"
 log_verbose "JSON Data: $CYAN$pr_data$RESET"
 
 # Check if pr_data is empty or just "[]"
@@ -362,6 +362,7 @@ fi
 git checkout "origin/$target_branch"
 git branch --show-current
 
+current_version=$(jq -r '.version' "$version_file")
 
 log_verbose "Current version from version.json: $current_version"
 
