@@ -17,10 +17,7 @@ inputs:
   branch-prefix:
     description: 'Prefix for the release branch name'
     required: false
-    default: 'release-branch/'
-  current-version:
-    description: 'Current version of the project'
-    required: true
+    default: 'Release/'
   merged-since:
     description: 'Include PRs merged since date (format: YYYY-MM-DDTHH:MM:SSZ)'
     required: false
@@ -80,6 +77,13 @@ runs:
 
         echo "Parameters: --source ${{ inputs.source-branch }} --target ${{ inputs.target-branch }}"
         
+        WORKING_DIR="${{ inputs.working-dir }}"
+        if [ -z "$WORKING_DIR" ]; then
+          WORKING_DIR="."
+        fi
+        
+        VERSION_FILE="$WORKING_DIR/${{ inputs.version-file }}"
+        
         # Build command with only non-empty parameters
         CMD="${{ github.action_path }}/scripts/create-release-branch.sh --source ${{ inputs.source-branch }} --target ${{ inputs.target-branch }}"
         
@@ -114,8 +118,8 @@ runs:
           CMD="$CMD --verbose"
         fi
         
-        # Add current version
-        CMD="$CMD --version ${{ inputs.current-version }}"
+        # Add version file
+        CMD="$CMD --version-file $VERSION_FILE"
         
         # Execute the command
         echo "Executing: $CMD"
