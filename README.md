@@ -28,35 +28,35 @@ Add this action to your workflow file (e.g., `.github/workflows/release.yml`):
 name: Create Release Branch
 on:
    workflow_dispatch:
-   inputs:
-      source-branch:
-         description: 'Source Branch'
-         required: true
-         default: 'dev'
-         type: string
-      target-branch:
-         description: 'Target Branch'
-         required: true
-         default: 'main'
-         type: choice
-         options:
-            - main
-      mergedSince:
-         description: 'From Date: - format: YYYY-MM-DDTHH:MM:SSZ - e.g. 2025-01-7T12:00:00Z'
-         required: false
-         default: ''
-      mergedUntil:
-         description: 'To Date: - format: YYYY-MM-DDTHH:MM:SSZ - e.g. 2025-01-14T12:00:00Z'
-         required: false
-         default: ''
-      includePrIds:
-         description: 'Default Pr IDs - 782,795,797,771'
-         required: false
-         default: ''
-      excludePattern:
-         description: 'Exclude pattern - #86c3rnXzw, #0'
-         required: false
-         default: ''
+     inputs:
+         source-branch:
+           description: 'Source branch to cherry-pick commits from'
+           required: true
+           default: 'dev'
+           type: string
+         target-branch:
+           description: 'Target branch to create the release from'
+           required: true
+           default: 'main'
+           type: choice
+           options:
+             - main
+         mergedSince:
+           description: 'Include PRs merged since date (format: YYYY-MM-DDTHH:MM:SSZ)'
+           required: false
+           default: ''
+         mergedUntil:
+           description: 'Include PRs merged until date (format: YYYY-MM-DDTHH:MM:SSZ)'
+           required: false
+           default: ''
+         includePrIds:
+           description: 'Comma-separated list of PR IDs to include'
+           required: false
+           default: ''
+         excludePattern:
+           description: 'Comma-separated list of title patterns to exclude'
+           required: false
+           default: ''
 jobs: 
    create-release-branch: 
       runs-on: ubuntu-latest
@@ -64,21 +64,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-           fetch-depth: 0  # Critical - fetch full history
+           fetch-depth: 0
            token: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Get current version
-        id: get_version
-        run: |
-           current_version=$(jq -r '.version' version.json)
-           echo "version=$current_version" >> $GITHUB_OUTPUT
-      
       - name: Create Release Branch
         uses: sulhadin/create-release-branch@v1
         with:
         source-branch: ${{ github.event.inputs.source-branch }}
         target-branch: ${{ github.event.inputs.target-branch }}
-        current-version: ${{ steps.get_version.outputs.version }}
         github-token: ${{ secrets.GITHUB_TOKEN }}
         merged-since: ${{ github.event.inputs.mergedSince }}
         merged-until: ${{ github.event.inputs.mergedUntil }}
@@ -91,7 +83,6 @@ jobs:
 |-------|-------------|----------|---------|
 | `source-branch` | Source branch with changes to include in release | Yes | `dev` |
 | `target-branch` | Target branch for the release | Yes | `main` |
-| `current-version` | Current version of the project | Yes | - |
 | `github-token` | GitHub token for API access | Yes | - |
 | `branch-prefix` | Prefix for the release branch name | No | `release-branch/` |
 | `merged-since` | Include PRs merged since date (YYYY-MM-DDTHH:MM:SSZ) | No | - |
