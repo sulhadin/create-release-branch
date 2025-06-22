@@ -46,19 +46,11 @@ jobs:
           fetch-depth: 0  # Critical - fetch full history
           token: ${{ secrets.PR_CREATION_TOKEN }}
 
-      - name: Prepare environment
-        id: get_version
-        run: |
-          current_version=$(jq -r '.version' version.json)
-          echo "Current version: $current_version"
-          echo "version=$current_version" >> $GITHUB_OUTPUT
-
       - name: Create Release Branch
         uses: sulhadin/create-release-branch@v1
         with:
           source-branch: ${{ github.event.inputs.source-branch }}
           target-branch: ${{ github.event.inputs.target-branch }}
-          current-version: ${{ steps.get_version.outputs.version }}
           github-token: ${{ secrets.PR_CREATION_TOKEN }}
           branch-prefix: "Release/"
           merged-since: ${{ github.event.inputs.mergedSince }}
