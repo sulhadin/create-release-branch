@@ -225,13 +225,25 @@ get_prs_by_ids() {
      return 1
    fi
 
-   # Now use git log with specific commit hashes to get all details including messageBody
-   git_cmd="git log --no-walk $merge_commits --pretty=format:'{\"oid\":\"%H\",\"messageHeadline\":\"%s\",\"messageBody\":\"%b\"}'"
+   # Use printf to format the JSON array opening
+   printf "["
 
-  local direct_commits
-  direct_commits=$(eval "$git_cmd" | tr '\n' ' ' | jq -s '.')
-  echo "$direct_commits"
+   # Process each commit individually with proper comma handling
+   first=true
+   for commit in $merge_commits; do
+     if $first; then
+       first=false
+     else
+       printf ","
+     fi
+     # Get commit details with newlines converted to spaces
+     git log -n 1 --pretty=format:'{"oid":"%H","messageHeadline":"%s","messageBody":"%b"}' "$commit" | tr '\n' ' '
+   done
+
+   # Close the JSON array
+   printf "]\n"
 }
+
 
 get_direct_commits() {
   local date_range=""
