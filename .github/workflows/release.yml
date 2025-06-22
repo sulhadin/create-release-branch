@@ -1,0 +1,74 @@
+name: Create Release and Publish to Marketplace
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if push is from a release branch merge
+        id: check_merge
+        run: |
+          # Get the most recent commit
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+          echo "Last commit message: $COMMIT_MSG"
+          
+          # Check if the commit is a merge from a Release branch
+          if [[ "$COMMIT_MSG" == Merge\ pull\ request* && "$COMMIT_MSG" == *from\ Release/* ]]; then
+            echo "is_release_merge=true" >> $GITHUB_OUTPUT
+            echo "This is a merge from a Release branch"
+          else
+            echo "is_release_merge=false" >> $GITHUB_OUTPUT
+            echo "This is not a merge from a Release branch"
+          fi
+
+      - name: Get version
+        id: get_version
+        if: steps.check_merge.outputs.is_release_merge == 'true'
+        run: |
+          # Extract version from version.json file
+          VERSION=$(jq -r '.version' version.json)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          
+          # Extract release notes from CHANGELOG.md
+          CHANGELOG=$(grep -A 100 "## $VERSION" CHANGELOG.md | grep -B 100 -m 2 "## " | head -n -1 || echo "")
+          echo "CHANGELOG<<EOF" >> $GITHUB_ENV
+          echo "$CHANGELOG" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+          echo "Version: $VERSION"
+
+      - name: Create Release
+        id: create_release
+        if: steps.check_merge.outputs.is_release_merge == 'true'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ env.VERSION }}
+          release_name: Release v${{ env.VERSION }}
+          body: |
+            ${{ env.CHANGELOG }}
+          draft: false
+          prerelease: false
+
+      - name: Update major version tag
+        if: steps.check_merge.outputs.is_release_merge == 'true'
+        run: |
+          # Extract major version
+          MAJOR_VERSION=$(echo "${{ env.VERSION }}" | cut -d. -f1)
+          
+          # Create or update the major version tag
+          git tag -f "v${MAJOR_VERSION}" 
+          git push -f origin "v${MAJOR_VERSION}"
+          echo "Updated major version tag: v${MAJOR_VERSION}"
