@@ -2,6 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2025-06-26
 ## [1.2.0] - 2025-06-23
 
 ### Other Changes\n\n- Refine release branch workflow inputs in README ([#68](https://github.com//pull/68)) ([6c6b213](https://github.com//commit/6c6b213))\n\n
