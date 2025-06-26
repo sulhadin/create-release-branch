@@ -15,26 +15,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Check if push is from a release branch merge
-        id: check_merge
-        run: |
-          # Get the most recent commit
-          COMMIT_MSG=$(git log -1 --pretty=format:"%s")
-          echo "Last commit message: $COMMIT_MSG"
-          
-          # Check if the commit is a merge from a Release branch
-          if [[ "$COMMIT_MSG" == Merge\ pull\ request* && "$COMMIT_MSG" == *from\ Release/* ]]; then
-            echo "is_release_merge=true" >> $GITHUB_OUTPUT
-            echo "This is a merge from a Release branch"
-          else
-            echo "is_release_merge=false" >> $GITHUB_OUTPUT
-            echo "This is not a merge from a Release branch"
-          fi
-
       - name: Get version
         id: get_version
-        if: steps.check_merge.outputs.is_release_merge == 'true'
         run: |
           # Extract version from version.json file
           VERSION=$(jq -r '.version' version.json)
@@ -50,7 +32,6 @@ jobs:
 
       - name: Create Release
         id: create_release
-        if: steps.check_merge.outputs.is_release_merge == 'true'
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -63,7 +44,6 @@ jobs:
           prerelease: false
 
       - name: Update major version tag
-        if: steps.check_merge.outputs.is_release_merge == 'true'
         run: |
           # Extract major version
           MAJOR_VERSION=$(echo "${{ env.VERSION }}" | cut -d. -f1)
