@@ -2,8 +2,8 @@ name: 'create-release-branch'
 description: 'Creates a release branch, updates version, and generates changelog based on PR data'
 author: 'Sulhadin Öney'
 branding:
-  icon: 'award'
-  color: black
+  icon: 'git-branch'
+  color: red
 
 inputs:
   source-branch:
@@ -17,10 +17,7 @@ inputs:
   branch-prefix:
     description: 'Prefix for the release branch name'
     required: false
-    default: 'release-branch/'
-  current-version:
-    description: 'Current version of the project'
-    required: true
+    default: 'Release/'
   merged-since:
     description: 'Include PRs merged since date (format: YYYY-MM-DDTHH:MM:SSZ)'
     required: false
@@ -31,15 +28,29 @@ inputs:
     description: 'Comma-separated list of PR IDs to include'
     required: false
   exclude-pattern:
-    description: 'Pattern to exclude PRs/commits'
+    description: 'PR title pattern to exclude PRs/commits'
     required: false
+  github-token:
+    description: 'GitHub token for authentication'
+    required: true
+  version-file:
+    description: 'File name holding the version (should contain .version)'
+    required: false
+    default: 'package.json'
+  commit-changes:
+    description: 'CleanUp&Commit created files'
+    required: false
+    default: 'true'
+  working-dir:
+    description: 'Working directory for monorepos'
+    required: false
+  repo-path:
+    description: 'Repository path'
+    required: true
   verbose:
     description: 'Enable verbose logging'
     required: false
     default: 'false'
-  github-token:
-    description: 'GitHub token for authentication'
-    required: true
 
 outputs:
   new-version:
@@ -69,8 +80,15 @@ runs:
 
         echo "Parameters: --source ${{ inputs.source-branch }} --target ${{ inputs.target-branch }}"
         
+        WORKING_DIR="${{ inputs.working-dir }}"
+        if [ -z "$WORKING_DIR" ]; then
+          WORKING_DIR="."
+        fi
+        
+        VERSION_FILE="$WORKING_DIR/${{ inputs.version-file }}"
+        
         # Build command with only non-empty parameters
-        CMD="./scripts/create-release-branch.sh --source ${{ inputs.source-branch }} --target ${{ inputs.target-branch }}"
+        CMD="${{ github.action_path }}/scripts/create-release-branch.sh --source ${{ inputs.source-branch }} --target ${{ inputs.target-branch }}"
         
         # Add optional parameters only if they have values
         if [ ! -z "${{ inputs.merged-since }}" ]; then
@@ -91,6 +109,11 @@ runs:
         if [ ! -z "${{ inputs.exclude-pattern }}" ]; then
           echo "Param: exclude-pattern = ${{ inputs.exclude-pattern }}"
           CMD="$CMD --exclude ${{ inputs.exclude-pattern }}"
+        fi   
+        
+        if [ ! -z "${{ inputs.branch-prefix }}" ]; then
+          echo "Param: release_branch_prefix = ${{ inputs.branch-prefix }}"
+          CMD="$CMD --branch-prefix ${{ inputs.branch-prefix }}"
         fi
         
         if [ "${{ inputs.verbose }}" = "true" ]; then
@@ -98,8 +121,8 @@ runs:
           CMD="$CMD --verbose"
         fi
         
-        # Add current version
-        CMD="$CMD --version ${{ inputs.current-version }}"
+        # Add version file
+        CMD="$CMD --version-file $VERSION_FILE"
         
         # Execute the command
         echo "Executing: $CMD"
@@ -115,14 +138,26 @@ runs:
 
     - name: Update Version and Generate Changelog
       run: |
+        WORKING_DIR="${{ inputs.working-dir }}"
+        if [ -z "$WORKING_DIR" ]; then
+          WORKING_DIR="."
+        fi
+        
+        VERSION_FILE="$WORKING_DIR/${{ inputs.version-file }}"
+        CHANGELOG_FILE="$WORKING_DIR/CHANGELOG.md"
+    
         # Update version
-        bash ./scripts/update-version.sh "$(cat version.txt)"
+        bash "${{ github.action_path }}/scripts/update-version.sh" "$(cat version.txt)" "$VERSION_FILE"
+        
         
         # Get the new version
-        version=$(jq -r '.version' version.json)
+        version=$(jq -r '.version' "$VERSION_FILE")
+        
+        REPO_PATH="${{ inputs.repo-path }}"
         
         # Generate changelog
-        bash ./scripts/generate-changelog.sh "$version" "$(cat pr_data.txt)"
+        bash "${{ github.action_path }}/scripts/generate-changelog.sh" "$version" "$(cat pr_data.txt)" "$CHANGELOG_FILE" "$REPO_PATH"
+        
         
         # Output logs for debugging
         echo "::group::Release Notes"
@@ -134,7 +169,7 @@ runs:
         echo "::endgroup::"
         
         echo "::group::Changelog"
-        cat CHANGELOG.md
+        cat "$WORKING_DIR/CHANGELOG.md"
         echo "::endgroup::"
         
         # Get current branch
@@ -149,12 +184,20 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
 
     - name: Commit and Push Changes
+      if: inputs.commit-changes == 'true'
       run: |
-        version=$(jq -r '.version' version.json)
+        # Set working directory variable
+        WORKING_DIR="${{ inputs.working-dir }}"
+        if [ -z "$WORKING_DIR" ]; then
+          WORKING_DIR="."
+        fi
+        
+        version=$(jq -r '.version' "$WORKING_DIR/${{ inputs.version-file }}")
         CURRENT_BRANCH=$(git branch --show-current)
         
         # Clean up temporary files
         rm -f version.txt release_notes.txt pr_data.txt
+        
         
         # Commit and push changes
         git add .
@@ -163,12 +206,6 @@ runs:
         git push origin HEAD:$CURRENT_BRANCH
         
         echo "::notice::New version: $version pushed to $CURRENT_BRANCH"
-        
-        # If PR URL file exists, set as output
-        if [ -f pr_url.txt ]; then
-          echo "pr-url=$(cat pr_url.txt)" >> $GITHUB_OUTPUT
-          rm -f pr_url.txt
-        fi
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
