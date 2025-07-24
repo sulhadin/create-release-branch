@@ -58,4 +58,5 @@ jobs:
           include-pr-ids: ${{ github.event.inputs.includePrIds }}
           exclude-pattern: ${{ github.event.inputs.excludePattern }}
           version-file: "version.json"
+          repo-path: "sulhadin/create-release-branch"
           verbose: 'false'

@@ -44,6 +44,9 @@ inputs:
   working-dir:
     description: 'Working directory for monorepos'
     required: false
+  repo-path:
+    description: 'Repository path'
+    required: true
   verbose:
     description: 'Enable verbose logging'
     required: false
@@ -150,8 +153,10 @@ runs:
         # Get the new version
         version=$(jq -r '.version' "$VERSION_FILE")
         
+        REPO_PATH="${{ inputs.repo-path }}"
+        
         # Generate changelog
-        bash "${{ github.action_path }}/scripts/generate-changelog.sh" "$version" "$(cat pr_data.txt)" "$CHANGELOG_FILE"
+        bash "${{ github.action_path }}/scripts/generate-changelog.sh" "$version" "$(cat pr_data.txt)" "$CHANGELOG_FILE" "$REPO_PATH"
         
         
         # Output logs for debugging

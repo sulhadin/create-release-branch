@@ -3,7 +3,7 @@
 # Default values
 source_branch="dev"
 target_branch="main"
-release_branch_prefix="release-branch/"
+release_branch_prefix="Release/"
 current_version=""
 version_file=""
 mergedSinceDate=""
@@ -138,7 +138,7 @@ cherry_pick_pr_commits() {
       git reset --hard  # Clean up any partial state
       return 0
     else
-     git commit -m "$pr_title"
+     git commit --no-verify -m "$pr_title"
 
       echo "Successfully cherry-picked changes from PR #$pr_number"
       return 0
@@ -157,30 +157,30 @@ debug_commits() {
     local target_branch="$2"
     local release_branch="$3"
 
-    echo "${CYAN}===== COMMIT DEBUGGING INFORMATION =====${RESET}"
+    log_verbose "${CYAN}===== COMMIT DEBUGGING INFORMATION =====${RESET}"
 
     # Log the latest commits in each branch
-    echo "${YELLOW}Latest commits in $source_branch:${RESET}"
+    log_verbose "${YELLOW}Latest commits in $source_branch:${RESET}"
     git log -n 5 --oneline "origin/$source_branch"
 
-    echo "${YELLOW}Latest commits in $target_branch:${RESET}"
+    log_verbose "${YELLOW}Latest commits in $target_branch:${RESET}"
     git log -n 5 --oneline "origin/$target_branch"
 
     # If release branch exists
     if git rev-parse --verify "origin/$release_branch" >/dev/null 2>&1; then
-        echo "${YELLOW}Latest commits in $release_branch:${RESET}"
+        log_verbose "${YELLOW}Latest commits in $release_branch:${RESET}"
         git log -n 5 --oneline "origin/$release_branch"
     fi
 
     # Show commits that are in source but not in target
-    echo "${GREEN}Commits in $source_branch that are not in $target_branch:${RESET}"
+    log_verbose "${GREEN}Commits in $source_branch that are not in $target_branch:${RESET}"
     git log --oneline "origin/$target_branch..origin/$source_branch"
 
     # Show common ancestor
-    echo "${MAGENTA}Common ancestor between $source_branch and $target_branch:${RESET}"
+    log_verbose "${MAGENTA}Common ancestor between $source_branch and $target_branch:${RESET}"
     common_commit=$(git merge-base "origin/$source_branch" "origin/$target_branch")
     git log -n 1 --oneline "$common_commit"
-    echo "${CYAN}===== END DEBUGGING INFORMATION =====${RESET}"
+    log_verbose "${CYAN}===== END DEBUGGING INFORMATION =====${RESET}"
 }
 
 increment_version() {
@@ -208,47 +208,49 @@ increment_version() {
 }
 
 get_prs_by_ids() {
+  log_verbose "Begin: get_prs_by_ids"
    # Parse comma-separated PR IDs
    IFS=',' read -ra pr_ids <<< "$include_pr_ids"
    local include_pr_id_query=""
-   for pattern in "${pr_ids[@]}"; do
-     include_pr_id_query+=" is:pr \\\"${pattern}\\\""
-   done
-
-   # Get PR data with merge commit hashes using GitHub API
-   pr_cmd="gh pr list --state merged --base \"$source_branch\" --search \"$include_pr_id_query\" --json number,mergeCommit"
-
-   # Extract just the merge commit hashes
-   merge_commits=$(eval "$pr_cmd" | jq -r '.[].mergeCommit.oid' | tr '\n' ' ')
-
-   if [ -z "$merge_commits" ]; then
-     echo "No matching PRs found" >&2
-     return 1
-   fi
-
-   # Use printf to format the JSON array opening
-   printf "["
-
-   # Process each commit individually with proper comma handling
    first=true
-   for commit in $merge_commits; do
-     if $first; then
-       first=false
+   printf "["
+   for ((i=${#pr_ids[@]}-1; i>=0; i--)); do
+       pattern="${pr_ids[i]}"
+
+      include_pr_id_query="is:pr \\\"${pattern}\\\""
+      pr_cmd="gh pr list --state merged --base \"$source_branch\" --search \"$include_pr_id_query\" --json number,mergeCommit"
+      log_verbose "$pr_cmd"
+
+      merge_commit=$(eval "$pr_cmd" | jq -r '.[0].mergeCommit.oid')
+
+      log_verbose "oid: $merge_commit"
+
+     if [ -z "$merge_commit" ]; then
+       log_verbose "No matching PRs found" >&2
      else
-       printf ","
+       if $first; then
+         first=false
+       else
+         printf ","
+       fi
+
+       # Get commit details with newlines converted to spaces
+       oid=$(git log -n 1 --pretty=format:'%H' "$merge_commit")
+       headline=$(git log -n 1 --pretty=format:'%s' "$merge_commit" | sed 's/"/\\"/g')
+       body=$(git log -n 1 --pretty=format:'%b' "$merge_commit" | sed 's/"/\\"/g')
+
+       echo "{\"oid\":\"$oid\",\"messageHeadline\":\"$headline\",\"messageBody\":\"$body\"}" | tr '\n' ' '
      fi
-     # Get commit details with newlines converted to spaces
-     git log -n 1 --pretty=format:'{"oid":"%H","messageHeadline":"%s","messageBody":"%b"}' "$commit" | tr '\n' ' '
    done
 
-   # Close the JSON array
    printf "]\n"
 }
 
-
 get_direct_commits() {
   local date_range=""
-  local exclude_filter=""
+
+  IFS=',' read -ra exclude_filter <<< "$exclude_patterns"
+
 
   if [ -n "$mergedSinceDate" ] && [ -n "$mergedUntilDate" ]; then
     date_range="--since=\"$mergedSinceDate\" --until=\"$mergedUntilDate\""
@@ -259,32 +261,50 @@ get_direct_commits() {
   fi
 
 
-  local git_cmd="git log $source_branch --no-merges $date_range --format='{\"oid\":\"%H\",\"messageHeadline\":\"%s\",\"messageBody\":\"%b\"}'"
+  # Use printf to format the JSON array opening
+    printf "["
 
-  local direct_commits
-  direct_commits=$(eval "$git_cmd" |  tr '\n' ' '  | jq -s '.')
+    # Get commits with a simple format that we can parse
+    local commits
+    commits=$(eval "git log $source_branch --no-merges $date_range --format='%H'")
 
-  # If we have exclude patterns, filter the JSON array
-  if [ -n "$exclude_patterns" ]; then
-     local pattern_string
-    pattern_string=$(echo "$exclude_patterns" | sed 's/,/|/g')
+    # Process each commit with proper comma handling
+    first=true
+    for commit in $commits; do
+      oid=$(git log -n 1 --pretty=format:'%H' "$commit")
+      headline=$(git log -n 1 --pretty=format:'%s' "$commit" | sed 's/"/\\"/g')
+      body=$(git log -n 1 --pretty=format:'%b' "$commit" | sed 's/"/\\"/g')
 
-    # Filter the JSON array to exclude commits whose messageHeadline matches the pattern
-    direct_commits=$(echo "$direct_commits" | jq --arg pattern "$pattern_string" '[.[] | select(.messageHeadline | test($pattern) | not)]')
-  fi
+      #/start This block is for excluding some commits
+      skip_commit=false
+      if [ -n "$exclude_patterns" ]; then
+        for pattern in "${exclude_filter[@]}"; do
+          if echo "$headline" | grep -q "$pattern"; then
+            skip_commit=true
+            break
+          fi
+        done
+      fi
 
-  echo "$direct_commits"
-}
+      if $skip_commit; then
+        continue
+      fi
+      #/end This block is for excluding some commits
 
-get_release_notes(){
-  local release_branch_name="$1"
-  local result
-  result=$(git log --oneline "origin/$target_branch..origin/$release_branch_name")
+      if $first; then
+        first=false
+      else
+        printf ","
+      fi
+      echo "{\"oid\":\"$oid\",\"messageHeadline\":\"$headline\",\"messageBody\":\"$body\"}" | tr '\n' ' '
+    done
 
-  echo "$result"
+    # Close the JSON array
+    printf "]\n"
 }
 
 semantic_versioning() {
+  log_verbose "Begin: semantic_versioning"
   local version_param="$1"
   local json_data="$2"
 
@@ -293,46 +313,47 @@ semantic_versioning() {
   local minor=false
   local patch=false
 
-  local commit_messages
+  temp_file=$(mktemp)
+  echo "$json_data" > "$temp_file"
 
-commit_messages=$(echo "$json_data" | jq -r '.[].messageBody')
+  # Create another temporary file for the extracted items
+  items_file=$(mktemp)
+  jq -c '.[]' "$temp_file" > "$items_file"
 
-  if $verbose_detail; then
-    echo "$commit_messages" | while read -r commit_msg; do
-      log_verbose "$BLUE Processing commit:$RESET$MAGENTA $commit_msg $RESET"
-          # First check entire commit message for breaking changes, with or without colon
-          if echo "$commit_msg" | grep -qiE "(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
-            log_verbose "$RED$commit_msg$RESET"
-          # If no breaking changes, check the first line for feat/fix/perf, with or without colon
-          elif echo "$commit_msg" | grep -qiE "(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
-            log_verbose "$YELLOW$commit_msg$RESET"
-          elif echo "$commit_msg" | grep -qiE "(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
-            log_verbose "$GREEN$commit_msg$RESET"
-          fi
-        done
-  fi
-#
-  result=$(echo "$commit_messages" | while read -r commit_msg; do
-    # First check entire commit message for breaking changes, with or without colon
-    if echo "$commit_msg" | grep -qiE "(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
-      echo "major"
-    # If no breaking changes, check the first line for feat/fix/perf, with or without colon
-    elif echo "$commit_msg" | grep -qiE "(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
-      echo "minor"
-    elif echo "$commit_msg" | grep -qiE "(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
-      echo "patch"
+  # Process each commit
+  while IFS= read -r item; do
+    messageBody=$(echo "$item" | jq -r '.messageBody')
+
+    if $verbose_detail; then
+      log_verbose "Checking commit: $messageBody"
     fi
-  done)
 
-  case "$result" in
-    *major*) major=true ;;
-    *minor*) minor=true ;;
-    *patch*) patch=true ;;
-  esac
+    if echo "$messageBody" | grep -qiE "(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
+      major=true
+      if $verbose_detail; then
+        log_verbose "${RED}Found BREAKING CHANGE${RESET}"
+      fi
+      break
+    elif echo "$messageBody" | grep -qiE "(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
+      minor=true
+      if $verbose_detail; then
+        log_verbose "${YELLOW}Found feature${RESET}"
+      fi
+    elif echo "$messageBody" | grep -qiE "(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
+      patch=true
+      if $verbose_detail; then
+        log_verbose "${GREEN}Found fix/perf${RESET}"
+      fi
+    fi
+  done < "$items_file"
+
+  # Clean up
+  rm "$temp_file" "$items_file"
 
   # Calculate new version
   log_verbose "major:$RED $major $RESET minor:$YELLOW $minor $RESET patch:$GREEN $patch $RESET"
   local new_version
+
   new_version=$(increment_version "$version_param" "$major" "$minor" "$patch")
 
   echo "$new_version"
@@ -344,7 +365,7 @@ else
   pr_data=$(get_direct_commits)
 fi
 
-log_verbose "JSON Data: $CYAN$pr_data$RESET"
+echo "PR DATA: $CYAN$pr_data$RESET"
 
 # Check if pr_data is empty or just "[]"
 if [ -z "$pr_data" ] || [ "$pr_data" = "[]" ]; then
@@ -354,7 +375,7 @@ fi
 
 
 if $no_action; then
-  log_verbose "$YELLOW NO ACTION TAKEN! $RESET"
+  echo "$YELLOW NO ACTION TAKEN! $RESET"
   exit 0
 fi
 
@@ -364,14 +385,14 @@ git branch --show-current
 
 current_version=$(jq -r '.version' "$version_file")
 
-log_verbose "Current version from version.json: $current_version"
+echo "Current version from version.json: $current_version"
 
 # Calculate the next version based on PR data
 version_info=$(semantic_versioning "$current_version" "$pr_data")
-log_verbose "Version info from semantic_versioning: $version_info"
+echo "Version info from semantic_versioning: $version_info"
 
 next_version=$(echo "$version_info" | tail -n1)
-log_verbose "Next version will be: $next_version"
+echo "Next version will be: $next_version"
 
 # Create release branch name
 release_branch="${release_branch_prefix}${next_version}"
@@ -382,8 +403,8 @@ echo "Creating release branch...: $release_branch"
 # Ensure we have the latest from remote with full history
 echo "Fetching latest from remote..."
 git fetch --all --prune || true
-
-# Ensure both branches exist remotely
+#
+## Ensure both branches exist remotely
 git ls-remote --heads origin "$source_branch" || { echo "Source branch $source_branch does not exist on remote!"; exit 1; }
 git ls-remote --heads origin "$target_branch" || { echo "Target branch $target_branch does not exist on remote!"; exit 1; }
 
@@ -396,34 +417,41 @@ echo "Current branch: $(git branch --show-current)"
 
 debug_commits "$source_branch" "$target_branch" "$release_branch"
 
-# Create a temporary file for the PR data
-temp_file=$(mktemp)
-echo "$pr_data" | jq -c 'reverse | .[]' > "$temp_file" 2>/dev/null
+
+json=$(echo "$pr_data" | jq 'reverse')
+
+echo "Reverse PR DATA: $CYAN$json$RESET"
 
 # Now extract the PR numbers and commit hashes from your PR data
 echo "Filtering PRs and extracting commit hashes..."
 
-# Process each PR
-while read -r pr; do
-  commit=$(echo "$pr" | jq -r '.oid')
-#  pr_number=$(echo "$pr" | jq -r '.number')
-  pr_title=$(echo "$pr" | jq -r '.messageHeadline')
+echo "$json" | jq -c '.[]' | while read -r item; do
+    oid=$(echo "$item" | jq -r '.oid')
+    messageHeadline=$(echo "$item" | jq -r '.messageHeadline')
 
-  echo "$pr_title"
+    cherry_pick_pr_commits "$oid" "$messageHeadline"
+done
 
-  cherry_pick_pr_commits "$commit" "$pr_title"
-done < "$temp_file"
-
-# Remove temporary file
-rm "$temp_file"
 rm -f cherry-pick-error.log
 
 # Push the release branch
 echo "Pushing release branch..."
-git push origin "$release_branch"
+if ! git push --no-verify origin "HEAD:$release_branch"; then
+  echo "Error pushing branch $release_branch"
+  # Check if the branch exists locally
+  git branch | grep "$release_branch"
+  exit 1
+fi
+
+if ! git ls-remote --heads origin "$release_branch" | grep -q "$release_branch"; then
+  echo "Error: Branch $release_branch was not successfully pushed to remote"
+  exit 1
+fi
+
+
 
 echo "Prepare release notes..."
-pr_body=$(get_release_notes "$release_branch")
+pr_body=$(git log --oneline "origin/$target_branch..HEAD")
 
 echo "PRs:$pr_body"
 echo "Generate release_notes.txt"
@@ -440,4 +468,3 @@ echo "$next_version" > version.txt
 echo "version.txt: Updated version to $next_version"
 
 echo "Done!"
-
