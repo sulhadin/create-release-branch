@@ -1,15 +1,26 @@
 if [ -z "$1" ]; then
-  echo "Usage: sh file-name <pr_data>"
+  echo "Usage: sh file-name <version> <pr_data> <filename> <repo_name>"
   exit 1
 fi
 
 if [ -z "$2" ]; then
-  echo "Usage: sh file-name pr_data"
+  echo "Usage: sh file-name <version> <pr_data> <filename> <repo_name>"
+  exit 1
+fi
+
+if [ -z "$3" ]; then
+  echo "Usage: sh file-name <version> <pr_data> <filename> <repo_name>"
+  exit 1
+fi
+if [ -z "$4" ]; then
+  echo "Usage: sh file-name <version> <pr_data> <filename> <repo_name>"
   exit 1
 fi
 
 new_version=$1
 pr_changelog=$2
+changelog_file_path=$3
+repo_name=$4
 
 format_changelog(){
    local changelog_content="$1"
@@ -17,7 +28,7 @@ format_changelog(){
 
    # Convert commit hashes to GitHub commit links
    # [<commit-url|commit-hash>]
-   changelog_content=$(echo "$changelog_content" | sed -E "s|([^\\[])([a-f0-9]{7,8})([^a-f0-9])|\\1[\\2](https://github.com/${repo_name}/commit/\\2)\\3|g")
+   changelog_content=$(echo "$changelog_content" | sed -E "s|([^\\[])([a-f0-9]{9})([^a-f0-9])|\\1[\\2](https://github.com/${repo_name}/commit/\\2)\\3|g")
 
    # Convert ClickUp IDs to ClickUp links
    # Format: #86c1rbjd1 -> [#86c1rbjd1](https://app.clickup.com/t/86c1rbjd1)
@@ -38,8 +49,7 @@ generate_changelog_entry() {
 
   # Start building the changelog entry
   local changelog_entry
-  changelog_entry="## [${version}] - ${release_date}"$'\n\n'
-
+  changelog_entry=$'\n'"## [${version}] - ${release_date}"$'\n'
 
   # Extract PR titles and categorize them
   local features=""
@@ -48,47 +58,49 @@ generate_changelog_entry() {
   local others=""
 
   temp_file=$(mktemp)
-  echo "$pr_data" | jq -c '.[]' > "$temp_file" 2>/dev/null
+  echo "$pr_data" > "$temp_file"
+  items_file=$(mktemp)
+  jq -c '.[]' "$temp_file" > "$items_file" 2>/dev/null
 
-  while read -r pr; do
+  while IFS= read -r pr; do
     local pr_title
     local pr_commit
     pr_commit=$(git rev-parse --short "$(echo "$pr" | jq -r '.oid')")
     pr_title=$(echo "$pr" | jq -r '.messageHeadline')
 
-    # Extract commit messages to look for conventional commit prefixes
-    local commit_messages
-    commit_messages=$(echo "$pr" | jq -r '.[].messageBody')
+    # Extract commit message body - fix here
+    local messageBody
+    messageBody=$(echo "$pr" | jq -r '.messageBody')
 
-    if echo "$commit_messages" | grep -qiE "(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
-      breaking+="- ${pr_title} (${pr_commit})\n"
-    # If no breaking changes, check the first line for feat/fix/perf, with or without colon
-    elif echo "$commit_messages" | grep -qiE "(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
-      features+="- ${pr_title} (${pr_commit})\n"
-    elif echo "$commit_messages" | grep -qiE "(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
-      fixes+="- ${pr_title} (${pr_commit})\n"
+    if echo "$messageBody" | grep -qiE "(\* )?( +)?BREAKING[- _]CHANGE(\([^)]+\))? ?:( .*)?"; then
+      breaking+="- ${pr_title} (${pr_commit})"$'\n'
+    # If no breaking changes, check for feat/fix/perf
+    elif echo "$messageBody" | grep -qiE "(( +)?\* )?(feat)(\([^)]+\))? ?:( .*)?"; then
+      features+="- ${pr_title} (${pr_commit})"$'\n'
+    elif echo "$messageBody" | grep -qiE "(( +)?\* )?(fix|perf)(\([^)]+\))? ?:( .*)?"; then
+      fixes+="- ${pr_title} (${pr_commit})"$'\n'
     else
-      others+="- ${pr_title} (${pr_commit})\n"
+      others+="- ${pr_title} (${pr_commit})"$'\n'
     fi
-  done < "$temp_file"
+  done < "$items_file"
 
-  rm "$temp_file"
+  rm "$temp_file" "$items_file"
 
   # Add sections to changelog entry if they contain changes
   if [ -n "$breaking" ]; then
-    changelog_entry+="### BREAKING CHANGES\n\n${breaking}\n"
+    changelog_entry+=$'\n'"### BREAKING CHANGES"$'\n\n'"${breaking}"
   fi
 
   if [ -n "$features" ]; then
-    changelog_entry+="### Features\n\n${features}\n"
+    changelog_entry+=$'\n'"### Features"$'\n\n'"${features}"
   fi
 
   if [ -n "$fixes" ]; then
-    changelog_entry+="### Bug Fixes\n\n${fixes}\n"
+    changelog_entry+=$'\n'"### Bug Fixes"$'\n\n'"${fixes}"
   fi
 
   if [ -n "$others" ]; then
-    changelog_entry+="### Other Changes\n\n${others}\n"
+    changelog_entry+=$'\n'"### Other Changes"$'\n\n'"${others}"
   fi
 
   echo "$changelog_entry"
@@ -97,7 +109,11 @@ generate_changelog_entry() {
 update_changelog() {
   local version="$1"
   local pr_data="$2"
-  local changelog_file="CHANGELOG.md"
+  local changelog_file="$3"
+
+  changelog_dir=$(dirname "$changelog_file")
+  mkdir -p "$changelog_dir"
+
 
   # Generate new changelog entry
   local new_entry
@@ -117,15 +133,14 @@ update_changelog() {
     echo "$new_entry" > "$entry_file"
 
     # Use sed to insert after the first line
-    sed "4 r $entry_file" "$changelog_file" > "${changelog_file}.new"
+    awk 'NR==4{print; system("cat '"$entry_file"'"); next}1' "$changelog_file" > "${changelog_file}.new"
 
     # Clean up
     rm "$entry_file"
     mv "${changelog_file}.new" "$changelog_file"
-
   fi
 
   echo "Updated $changelog_file with changes for version $version"
 }
 
-update_changelog "$new_version" "$pr_changelog"
+update_changelog "$new_version" "$pr_changelog" "$changelog_file_path"
