@@ -68,6 +68,9 @@ outputs:
   pr-url:
     description: 'URL of the created pull request'
     value: ${{ steps.update-version.outputs.pr-url }}
+  changelog:
+    description: 'Formatted markdown release notes for the created release'
+    value: ${{ steps.update-version.outputs.changelog }}
 
 
 runs:
@@ -204,13 +207,17 @@ runs:
         CURRENT_BRANCH=$(git branch --show-current)
         echo "Current branch after script: $CURRENT_BRANCH"
                 
-        # Set output variables
+        # SET OUTPUT VARIABLES
         echo "release-notes<<EOF" >> $GITHUB_OUTPUT
         cat release_notes.txt >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT    
         
         echo "pr-url<<EOF" >> $GITHUB_OUTPUT
         cat pr_url.txt >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT 
+        
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        cat changelog.txt >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
         echo "version=$version" >> $GITHUB_OUTPUT
@@ -232,7 +239,7 @@ runs:
         CURRENT_BRANCH=$(git branch --show-current)
         
         # Clean up temporary files
-        rm -f version.txt release_notes.txt pr_data.txt pr_url.txt
+        rm -f version.txt release_notes.txt pr_data.txt pr_url.txt changelog.txt
         
         
         # Commit and push changes

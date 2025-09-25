@@ -122,6 +122,7 @@ update_changelog() {
   echo "$new_entry"
 
  new_entry=$(format_changelog "$new_entry" "$repo_name")
+ echo "$new_entry" > changelog.txt
 
   # Check if CHANGELOG.md exists
   if [ ! -f "$changelog_file" ]; then
