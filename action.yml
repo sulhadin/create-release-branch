@@ -37,6 +37,9 @@ inputs:
     description: 'File name holding the version (should contain .version)'
     required: false
     default: 'package.json'
+  enforce-version:
+    description: 'Enforcing a specific version (not cool but anyway)'
+    required: false
   commit-changes:
     description: 'CleanUp&Commit created files'
     required: false
@@ -53,12 +56,19 @@ inputs:
     default: 'false'
 
 outputs:
-  new-version:
+  version:
     description: 'The new version created by the action'
+    value: ${{ steps.update-version.outputs.version }}
   release-branch:
     description: 'The name of the created release branch'
+    value: ${{ steps.update-version.outputs.release-branch }}
+  release-notes:
+    description: 'Release notes for the created release'
+    value: ${{ steps.update-version.outputs.release-notes }}
   pr-url:
     description: 'URL of the created pull request'
+    value: ${{ steps.update-version.outputs.pr-url }}
+
 
 runs:
   using: composite
@@ -75,6 +85,18 @@ runs:
 
     - name: Generate Release Branch
       run: |
+        ENFORCE_VERSION="${{ inputs.enforce-version }}"
+        if [ -n "$ENFORCE_VERSION" ]; then
+          # strict X.Y.Z
+          if ! node -p "'$ENFORCE_VERSION'.match(/^\d+\.\d+\.\d+$/)?true:false" | grep -q "true"; then
+            echo "::error::Invalid semantic version format for enforce-version: $ENFORCE_VERSION"
+            exit 1
+          fi
+            echo "Using enforced version: $ENFORCE_VERSION"
+        else
+            echo "No enforce-version provided; skipping enforced version validation."
+        fi
+        
         echo "Repository: ${{ github.repository }}"
         echo "Repository Name: ${{ github.event.repository.name }}"
 
@@ -114,6 +136,11 @@ runs:
         if [ ! -z "${{ inputs.branch-prefix }}" ]; then
           echo "Param: release_branch_prefix = ${{ inputs.branch-prefix }}"
           CMD="$CMD --branch-prefix ${{ inputs.branch-prefix }}"
+        fi      
+        
+        if [ ! -z "${{ inputs.enforce-version }}" ]; then
+          echo "Param: release_branch_prefix = ${{ inputs.enforce-version }}"
+          CMD="$CMD --enforce-version ${{ inputs.enforce-version }}"
         fi
         
         if [ "${{ inputs.verbose }}" = "true" ]; then
@@ -137,6 +164,7 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
 
     - name: Update Version and Generate Changelog
+      id: update-version
       run: |
         WORKING_DIR="${{ inputs.working-dir }}"
         if [ -z "$WORKING_DIR" ]; then
@@ -175,9 +203,17 @@ runs:
         # Get current branch
         CURRENT_BRANCH=$(git branch --show-current)
         echo "Current branch after script: $CURRENT_BRANCH"
-        
+                
         # Set output variables
-        echo "new-version=$version" >> $GITHUB_OUTPUT
+        echo "release-notes<<EOF" >> $GITHUB_OUTPUT
+        cat release_notes.txt >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT    
+        
+        echo "pr-url<<EOF" >> $GITHUB_OUTPUT
+        cat pr_url.txt >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+        echo "version=$version" >> $GITHUB_OUTPUT
         echo "release-branch=$CURRENT_BRANCH" >> $GITHUB_OUTPUT
       shell: bash
       env:
@@ -196,7 +232,7 @@ runs:
         CURRENT_BRANCH=$(git branch --show-current)
         
         # Clean up temporary files
-        rm -f version.txt release_notes.txt pr_data.txt
+        rm -f version.txt release_notes.txt pr_data.txt pr_url.txt
         
         
         # Commit and push changes

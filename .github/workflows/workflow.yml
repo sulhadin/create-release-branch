@@ -30,6 +30,9 @@ on:
         description: 'Comma-separated list of title patterns to exclude'
         required: false
         default: ''
+      enforceVersion:
+        description: 'Enforcing a specific version (not cool but anyway)'
+        required: false
 env:
   SOURCE_BRANCH: ${{ github.event.inputs.source-branch }}
   TARGET_BRANCH: ${{ github.event.inputs.target-branch }}
@@ -52,11 +55,12 @@ jobs:
           source-branch: ${{ github.event.inputs.source-branch }}
           target-branch: ${{ github.event.inputs.target-branch }}
           github-token: ${{ secrets.PR_CREATION_TOKEN }}
-          branch-prefix: "Release/"
+          branch-prefix: "release/"
           merged-since: ${{ github.event.inputs.mergedSince }}
           merged-until: ${{ github.event.inputs.mergedUntil }}
           include-pr-ids: ${{ github.event.inputs.includePrIds }}
           exclude-pattern: ${{ github.event.inputs.excludePattern }}
           version-file: "version.json"
+          enforce-version: ${{ github.event.inputs.enforceVersion }}
           repo-path: "sulhadin/create-release-branch"
           verbose: 'false'

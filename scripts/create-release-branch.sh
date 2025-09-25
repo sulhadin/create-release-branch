@@ -1,63 +1,62 @@
 #!/bin/bash
+set -Eeuo pipefail  # note: -E (errtrace) so ERR trap works in functions too
+
+# capture the branch BEFORE any checkout
+PREV_BRANCH="$(git branch --show-current 2>/dev/null || true)"
+CREATED_RELEASE_BRANCH=false
+
+rollback() {
+  echo "Error encountered, rolling back..." >&2
+  git cherry-pick --abort 2>/dev/null || true
+
+  # go back to where we started
+  if [[ -n "${PREV_BRANCH:-}" ]]; then
+    git checkout "$PREV_BRANCH" 2>/dev/null || true
+  else
+    # if we started detached, at least try to get off the release branch
+    git checkout --detach 2>/dev/null || true
+  fi
+
+  # delete the release branch if we created it
+  if [[ "${CREATED_RELEASE_BRANCH}" == true && -n "${release_branch:-}" ]]; then
+    git branch -D "$release_branch" 2>/dev/null || true
+  fi
+
+  exit 1
+}
+
+trap rollback ERR
 
 # Default values
 source_branch="dev"
 target_branch="main"
-release_branch_prefix="Release/"
+release_branch_prefix="release/"
 current_version=""
 version_file=""
 mergedSinceDate=""
 mergedUntilDate=""
 include_pr_ids=""
 exclude_patterns=""
+enforce_version=""
 verbose_detail=false
 no_action=false
+no_push=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --source)
-      source_branch="$2"
-      shift 2
-      ;;
-    --target)
-      target_branch="$2"
-      shift 2
-      ;;
-    --version-file)
-      version_file="$2"
-      shift 2
-      ;;
-    --from-date)
-      mergedSinceDate="$2"
-      shift 2
-      ;;
-    --to-date)
-      mergedUntilDate="$2"
-      shift 2
-      ;;
-    --exclude)
-      exclude_patterns="$2"
-      shift 2
-      ;;
-    --include-pr-ids)
-      include_pr_ids="$2"
-      shift 2
-      ;;
-      --branch-prefix)
-        release_branch_prefix="$2"
-        shift 2
-        ;;
-      --verbose)
-      # Handle as a flag without requiring a value
-      verbose_detail=true
-      shift 1
-      ;;
-    --no-action)
-      # Handle as a flag without requiring a value
-      no_action=true
-      shift 1
-      ;;
+      --source) source_branch="$2"; shift 2;;
+      --target) target_branch="$2"; shift 2;;
+      --version-file) version_file="$2"; shift 2;;
+      --from-date) mergedSinceDate="$2"; shift 2;;
+      --to-date) mergedUntilDate="$2"; shift 2;;
+      --exclude) exclude_patterns="$2"; shift 2;;
+      --include-pr-ids) include_pr_ids="$2"; shift 2;;
+      --branch-prefix) release_branch_prefix="$2"; shift 2;;
+      --enforce-version) enforce_version="$2"; shift 2;;
+      --verbose) verbose_detail=true; shift 1;;
+      --no-action) no_action=true; shift 1;;
+      --no-push) no_push=true; shift 1;;
     *)
       echo "Unknown option: $1"
       echo "Usage: $0 --version VERSION [--source BRANCH] [--target BRANCH] [--from-date DATE] [--to-date DATE] [--include-patterns 'pattern1,pattern2,...'] [--exclude PATTERN] [--verbose]"
@@ -74,15 +73,9 @@ MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 RESET='\033[0m'
 
-if [ -n "$CI" ] || [ -n "$GITHUB_ACTIONS" ]; then
+if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then
   # Disable colors in CI
-  RED=''
-  GREEN=''
-  YELLOW=''
-  BLUE=''
-  MAGENTA=''
-  CYAN=''
-  RESET=''
+  RED=''; GREEN=''; YELLOW=''; BLUE=''; MAGENTA=''; CYAN=''; RESET=''
 fi
 
 
@@ -93,63 +86,45 @@ log_verbose() {
     echo "${RED}------------------------------------------------------${RESET}"
   fi
 }
+# Usage:
+#   local commit_hash="$1"
+#   local pr_title="$2"
+#   local pr_number
+#   pr_number=$(echo "$pr_title" | grep -oE '\(#[0-9]+\)' | grep -oE '[0-9]+')
+#   fetch_and_cherrypick "$commit_hash" "$pr_number"
 
-cherry_pick_pr_commits() {
-  local commit_hash="$1"
-  local pr_title="$2"
-  local pr_number
-  pr_number=$(echo "$pr_title" | grep -oE '\(#[0-9]+\)' | grep -oE '[0-9]+')
+fetch_and_cherrypick() {
+  set -euo pipefail
 
+    local commit_hash="$1"
+    local pr_title="$2"
+    local pr_number
+    pr_number=$(echo "$pr_title" | grep -oE '\(#[0-9]+\)' | grep -oE '[0-9]+')
 
-  echo "Cherry-picking commit for PR #$pr_number: $commit_hash"
+  # Make sure we’re in a clean repo
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "Not a git repo."; exit 1; }
+  git remote get-url origin >/dev/null 2>&1 || { echo "No 'origin' remote."; exit 1; }
+  git diff-index --quiet HEAD -- || { echo "Working tree not clean."; exit 1; }
 
-  # First, verify the commit exists
-  if ! git cat-file -e "$commit_hash^{commit}" 2>/dev/null; then
-    echo "Warning: Commit $commit_hash doesn't exist in the local repository. Trying to fetch..."
-
-    # Try to fetch the commit directly
-    if ! git fetch origin "$commit_hash"; then
-      echo "Error: Couldn't fetch commit $commit_hash. Let's try finding the PR directly..."
-
-      # Try to fetch the PR directly
-      if git fetch origin "refs/pull/$pr_number/head"; then
-        pr_head_commit=$(git rev-parse FETCH_HEAD)
-        echo "Found PR #$pr_number head commit: $pr_head_commit"
-        commit_hash="$pr_head_commit"
-      else
-        # Try to find the PR merge commit in dev branch
-        merge_commit=$(git log --grep="Merge pull request #$pr_number" --format="%H" "origin/dev" | head -n 1)
-        if [ -n "$merge_commit" ]; then
-          echo "Found merge commit for PR #$pr_number: $merge_commit"
-          commit_hash="$merge_commit"
-        else
-          echo "Error: Could not find commit or PR #$pr_number. Skipping."
-          return 1
-        fi
-      fi
+  # Always fetch, either by commit hash or by PR number
+  if ! git fetch --no-tags --quiet origin "${commit_hash}"; then
+    if [[ -n "${pr_number}" ]]; then
+      git fetch --no-tags --quiet origin "pull/${pr_number}/head"
+      commit_hash="$(git rev-parse FETCH_HEAD^{commit})"
+    else
+      echo "Could not fetch ${commit_hash} and no PR number provided." >&2
+      return 1
     fi
   fi
 
-  # Now try to cherry-pick
-  if git cherry-pick -n "$commit_hash" 2>/dev/null; then
-    # Check if there are any changes
-    if git diff --cached --quiet; then
-      echo "Empty cherry-pick detected for $commit_hash. No changes to apply."
-      git reset --hard  # Clean up any partial state
-      return 0
-    else
-     git commit --no-verify -m "$pr_title"
-
-      echo "Successfully cherry-picked changes from PR #$pr_number"
-      return 0
-    fi
-  else
-    # Cherry-pick failed
-    echo "Cherry-pick failed for PR #$pr_number ($commit_hash)"
-    git status
-    git cherry-pick --abort 2>/dev/null || git reset --hard
+  # Try to cherry-pick
+  if ! git cherry-pick -x --no-edit "${commit_hash}"; then
+    echo "Cherry-pick conflict for ${commit_hash}${pr_number:+ (PR #${pr_number})}. Aborting." >&2
+    git cherry-pick --abort || true
     return 1
   fi
+
+  echo "Cherry-picked ${commit_hash}${pr_number:+ from PR #${pr_number}} onto $(git rev-parse --abbrev-ref HEAD)."
 }
 
 debug_commits() {
@@ -379,20 +354,32 @@ if $no_action; then
   exit 0
 fi
 
-# Checkout main branch to start with a clean state
+echo "Checkout main branch to start with a clean state"
 git checkout "origin/$target_branch"
+echo "show current"
 git branch --show-current
 
-current_version=$(jq -r '.version' "$version_file")
+current_version="${enforce_version:-$(jq -r '.version // empty' "$version_file")}"
+
+if [[ -z "$current_version" ]]; then
+  echo "Error: version not provided (no --enforce-version and no version in $version_file)" >&2
+  exit 1
+fi
 
 echo "Current version from version.json: $current_version"
 
-# Calculate the next version based on PR data
-version_info=$(semantic_versioning "$current_version" "$pr_data")
-echo "Version info from semantic_versioning: $version_info"
+if [[ -n "${enforce_version:-}" ]]; then
+  # Skip semantic versioning if enforce_version is provided
+  next_version="$enforce_version"
+  echo "Enforced version provided, skipping semantic versioning."
+else
+  # Calculate the next version based on PR data
+  version_info=$(semantic_versioning "$current_version" "$pr_data")
+  echo "Version info from semantic_versioning: $version_info"
 
-next_version=$(echo "$version_info" | tail -n1)
-echo "Next version will be: $next_version"
+  next_version=$(echo "$version_info" | tail -n1)
+  echo "Next version will be: $next_version"
+fi
 
 # Create release branch name
 release_branch="${release_branch_prefix}${next_version}"
@@ -413,7 +400,7 @@ echo "Creating release branch from $target_branch..."
 git checkout -B "$release_branch" "origin/$target_branch" || { echo "Failed to create branch from $target_branch"; exit 1; }
 git branch --set-upstream-to="origin/$target_branch" "$release_branch"
 echo "Current branch: $(git branch --show-current)"
-
+CREATED_RELEASE_BRANCH=true
 
 debug_commits "$source_branch" "$target_branch" "$release_branch"
 
@@ -425,27 +412,31 @@ echo "Reverse PR DATA: $CYAN$json$RESET"
 # Now extract the PR numbers and commit hashes from your PR data
 echo "Filtering PRs and extracting commit hashes..."
 
-echo "$json" | jq -c '.[]' | while read -r item; do
-    oid=$(echo "$item" | jq -r '.oid')
-    messageHeadline=$(echo "$item" | jq -r '.messageHeadline')
+tmp_items="$(mktemp)"
+jq -c '.[]' <<<"$json" > "$tmp_items"
 
-    cherry_pick_pr_commits "$oid" "$messageHeadline"
-done
+while IFS= read -r item; do
+  oid=$(jq -r '.oid' <<<"$item")
+  messageHeadline=$(jq -r '.messageHeadline' <<<"$item")
+  fetch_and_cherrypick "$oid" "$messageHeadline"
+done < "$tmp_items"
 
-rm -f cherry-pick-error.log
+rm -f "$tmp_items"
 
-# Push the release branch
-echo "Pushing release branch..."
-if ! git push --no-verify origin "HEAD:$release_branch"; then
-  echo "Error pushing branch $release_branch"
-  # Check if the branch exists locally
-  git branch | grep "$release_branch"
-  exit 1
-fi
+if [[ "${no_push:-}" != true ]]; then
+  # Push the release branch
+  echo "Pushing release branch..."
+  if ! git push --no-verify origin "HEAD:$release_branch"; then
+    echo "Error pushing branch $release_branch"
+    # Check if the branch exists locally
+    git branch | grep "$release_branch"
+    exit 1
+  fi
 
-if ! git ls-remote --heads origin "$release_branch" | grep -q "$release_branch"; then
-  echo "Error: Branch $release_branch was not successfully pushed to remote"
-  exit 1
+  if ! git ls-remote --heads origin "$release_branch" | grep -q "$release_branch"; then
+    echo "Error: Branch $release_branch was not successfully pushed to remote"
+    exit 1
+  fi
 fi
 
 
@@ -459,9 +450,12 @@ echo "$pr_body" > release_notes.txt
 echo "Generate pr_data.txt"
 echo "$pr_data" > pr_data.txt
 
-echo "Pull request creating"
-pr_url=$(gh pr create --base "$target_branch" --head "$release_branch" --title "$release_branch" --body "$pr_body")
-echo "Pull request created: $pr_url"
+if [[ "${no_push:-}" != true ]]; then
+  echo "Pull request creating"
+  pr_url=$(gh pr create --base "$target_branch" --head "$release_branch" --title "$release_branch" --body "$pr_body")
+  echo "Pull request created: $pr_url"
+  echo "$pr_url" > pr_url.txt
+fi
 
 ##UPDATE version.json
 echo "$next_version" > version.txt
