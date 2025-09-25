@@ -78,9 +78,13 @@ runs:
   steps:
     - name: Setup Git
       run: |
-        # Configure git
-        git config --global user.name "${{ github.actor }}"
-        git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+        # Capture the current branch to restore later
+        PREV_BRANCH=$(git branch --show-current)
+        echo "PREV_BRANCH=$PREV_BRANCH" >> "$GITHUB_ENV"
+
+        # Configure git for this action
+        #git config --global user.name "${{ github.actor }}"
+        #git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
         
         # Set GitHub token for API access
         export GH_TOKEN="${{ inputs.github-token }}"
@@ -247,6 +251,11 @@ runs:
         git commit -m "bump(version): app to ${version}"
         git pull --rebase origin $CURRENT_BRANCH
         git push origin HEAD:$CURRENT_BRANCH
+
+        # Switch back to the branch we started from, if available
+        if [ -n "${PREV_BRANCH}" ]; then
+          git checkout "${PREV_BRANCH}" 2>/dev/null || git switch "${PREV_BRANCH}" || true
+        fi
         
         echo "::notice::New version: $version pushed to $CURRENT_BRANCH"
       shell: bash
