@@ -78,19 +78,13 @@ runs:
   steps:
     - name: Setup Git
       run: |
-        # Capture previous global git config to restore later
-        OLD_GIT_USER_NAME=$(git config --global --get user.name || true)
-        OLD_GIT_USER_EMAIL=$(git config --global --get user.email || true)
-        echo "OLD_GIT_USER_NAME=$OLD_GIT_USER_NAME" >> "$GITHUB_ENV"
-        echo "OLD_GIT_USER_EMAIL=$OLD_GIT_USER_EMAIL" >> "$GITHUB_ENV"
-
         # Capture the current branch to restore later
         PREV_BRANCH=$(git branch --show-current)
         echo "PREV_BRANCH=$PREV_BRANCH" >> "$GITHUB_ENV"
 
         # Configure git for this action
-        #git config --global user.name "${{ github.actor }}"
-        #git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+        git config --global user.name "${{ github.actor }}"
+        git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
         
         # Set GitHub token for API access
         export GH_TOKEN="${{ inputs.github-token }}"
@@ -257,18 +251,6 @@ runs:
         git commit -m "bump(version): app to ${version}"
         git pull --rebase origin $CURRENT_BRANCH
         git push origin HEAD:$CURRENT_BRANCH
-        
-        # Restore previous git config (if any) and switch back to previous branch
-        if [ -n "${OLD_GIT_USER_NAME}" ]; then
-          git config --global user.name "${OLD_GIT_USER_NAME}"
-        else
-          git config --global --unset user.name || true
-        fi
-        if [ -n "${OLD_GIT_USER_EMAIL}" ]; then
-          git config --global user.email "${OLD_GIT_USER_EMAIL}"
-        else
-          git config --global --unset user.email || true
-        fi
 
         # Switch back to the branch we started from, if available
         if [ -n "${PREV_BRANCH}" ]; then
